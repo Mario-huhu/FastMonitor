@@ -45,8 +45,8 @@ frontend/package.json.md5
 .DS_Store
 Thumbs.db
 
-# Wails auto-generated
-frontend/wailsjs/
+# Wails auto-generated (keep wailsjs for users to clone and use directly)
+# frontend/wailsjs/
 
 # Old sub-project (embedded git repo)
 FastMonitor/
