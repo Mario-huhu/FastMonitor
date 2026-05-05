@@ -167,27 +167,34 @@ func CheckPermission() error {
 		return nil
 
 	case "darwin":
-		// macOS: 检查是否有权限访问BPF设备
-		// 需要root权限或者用户在admin/wheel组
 		if os.Geteuid() == 0 {
 			return nil
 		}
 		
-		// 尝试打开设备测试权限
 		devices, err := pcap.FindAllDevs()
 		if err != nil {
-			return fmt.Errorf("%w: 需要root权限或sudo运行", ErrNoPermission)
+			return fmt.Errorf("%w: 无法枚举网络设备，需要管理员权限", ErrNoPermission)
 		}
 		if len(devices) == 0 {
 			return errors.New("未找到网络接口")
 		}
 		
-		// 尝试打开第一个设备
 		handle, err := pcap.OpenLive(devices[0].Name, 65535, false, pcap.BlockForever)
 		if err != nil {
 			if strings.Contains(err.Error(), "permission") || 
-			   strings.Contains(err.Error(), "You don't have permission") {
-				return fmt.Errorf("%w: 需要root权限，请使用 sudo 运行", ErrNoPermission)
+			   strings.Contains(err.Error(), "You don't have permission") ||
+			   strings.Contains(err.Error(), "Operation not permitted") {
+				return fmt.Errorf(`%w: 抓包需要管理员权限
+
+macOS 系统需要管理员权限才能进行网络抓包。
+
+解决方法：
+1. 在终端中使用 sudo 运行应用
+2. 或者配置 BPF 设备权限（重启后失效）：
+   sudo chown $(whoami):admin /dev/bpf*
+   sudo chmod g+rw /dev/bpf*
+3. 或者将当前用户添加到 access_bpf 组（需要重启生效）：
+   sudo dseditgroup -o edit -a $(whoami) -t user access_bpf`, ErrNoPermission)
 			}
 			return fmt.Errorf("打开设备失败: %w", err)
 		}
