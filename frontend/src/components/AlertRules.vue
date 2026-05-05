@@ -8,6 +8,25 @@
       <el-button :icon="Refresh" @click="loadData" :loading="loading">
         刷新
       </el-button>
+      <el-button type="success" @click="exportRules">
+        <el-icon><Download /></el-icon>
+        导出规则
+      </el-button>
+      <el-button type="warning" @click="importRules">
+        <el-icon><Upload /></el-icon>
+        导入规则
+      </el-button>
+      <el-button type="danger" @click="resetBuiltinRules" :loading="resetting">
+        <el-icon><RefreshRight /></el-icon>
+        重置内置规则
+      </el-button>
+      <input 
+        ref="fileInputRef" 
+        type="file" 
+        accept=".json" 
+        style="display: none;" 
+        @change="handleFileSelect"
+      />
       <el-select 
         v-model="filterType" 
         placeholder="按类型筛选" 
@@ -73,6 +92,15 @@
               
               <el-descriptions-item label="规则描述" :span="2">
                 {{ row.description || '-' }}
+              </el-descriptions-item>
+              
+              <el-descriptions-item label="联网检测" v-if="row.rule_type === 'process'">
+                <el-tag :type="row.require_network ? 'warning' : 'info'">
+                  {{ row.require_network ? '需要联网' : '离线检测' }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="联网检测" v-else>
+                <el-tag type="info">不适用</el-tag>
               </el-descriptions-item>
               
               <el-descriptions-item label="创建时间">
@@ -256,19 +284,32 @@
         <el-form-item label="匹配值" prop="condition_value">
           <el-input 
             v-model="ruleForm.condition_value" 
-            placeholder="请输入匹配值"
-            maxlength="500"
+            type="textarea"
+            :rows="4"
+            placeholder="请输入匹配值（支持多行或逗号分隔，将自动创建多条规则）"
+            maxlength="2000"
             show-word-limit
-          >
-            <template #append v-if="ruleForm.condition_operator === 'regex'">
-              <el-button @click="showRegexHelp">正则帮助</el-button>
-            </template>
-          </el-input>
+          />
+          <div style="margin-top: 8px; display: flex; align-items: center; gap: 8px;">
+            <el-button 
+              v-if="ruleForm.condition_operator === 'regex'" 
+              size="small" 
+              @click="showRegexHelp"
+            >
+              正则帮助
+            </el-button>
+            <el-tag v-if="getValueCount() > 1" type="info" size="small">
+              将创建 {{ getValueCount() }} 条规则
+            </el-tag>
+          </div>
           <div style="margin-top: 8px; font-size: 12px; color: #999;">
-            <div v-if="ruleForm.rule_type === 'dst_ip'">示例: 192.168.1.1 或 fe80::1</div>
-            <div v-else-if="ruleForm.rule_type === 'dns'">示例: baidu.com 或 .*\.cn$ (正则)</div>
-            <div v-else-if="ruleForm.rule_type === 'http'">示例: example.com 或 /api/login</div>
-            <div v-else-if="ruleForm.rule_type === 'process'">示例: chrome.exe 或 /usr/bin/firefox</div>
+            <div v-if="ruleForm.rule_type === 'dst_ip'">示例: 192.168.1.1, 192.168.1.2 或每行一个IP</div>
+            <div v-else-if="ruleForm.rule_type === 'dns'">示例: baidu.com, qq.com 或 .*\.cn$ (正则)</div>
+            <div v-else-if="ruleForm.rule_type === 'http'">示例: example.com, example.org 或 /api/login</div>
+            <div v-else-if="ruleForm.rule_type === 'process'">示例: chrome.exe, firefox.exe 或每行一个</div>
+            <div style="margin-top: 4px; color: #e6a23c;">
+              💡 提示：支持换行或逗号分隔，批量创建多条规则
+            </div>
           </div>
         </el-form-item>
         
@@ -298,6 +339,20 @@
             maxlength="500"
             show-word-limit
           />
+        </el-form-item>
+        
+        <el-form-item label="联网检测" v-if="ruleForm.rule_type === 'process'">
+          <el-switch 
+            v-model="ruleForm.require_network" 
+            active-text="需要联网" 
+            inactive-text="离线检测"
+            :active-value="true"
+            :inactive-value="false"
+          />
+          <div style="margin-top: 8px; font-size: 12px; color: #999;">
+            <div>• 需要联网：只有在进程产生网络流量时才触发告警</div>
+            <div>• 离线检测：只要进程运行就触发告警（不推荐，可能产生大量误报）</div>
+          </div>
         </el-form-item>
         
         <el-form-item label="启用状态">
@@ -335,16 +390,18 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import { Plus, Refresh, Download, Upload, RefreshRight } from '@element-plus/icons-vue'
 import { 
   QueryAlertRules, 
   CreateAlertRule, 
   UpdateAlertRule, 
-  DeleteAlertRule 
+  DeleteAlertRule,
+  ResetBuiltinRules
 } from '../../wailsjs/go/server/App'
 
 const loading = ref(false)
 const submitting = ref(false)
+const resetting = ref(false)
 const dialogVisible = ref(false)
 const regexHelpVisible = ref(false)
 const isEdit = ref(false)
@@ -354,6 +411,7 @@ const currentPage = ref(1)
 const pageSize = ref(50)
 const ruleFormRef = ref()
 const expandedRows = ref<number[]>([])
+const fileInputRef = ref<HTMLInputElement>()
 
 // 筛选条件
 const filterType = ref('')
@@ -372,7 +430,8 @@ const ruleForm = reactive({
   condition_value: '',
   alert_level: 'warning',
   description: '',
-  enabled: true
+  enabled: true,
+  require_network: false
 })
 
 const rules = {
@@ -419,6 +478,23 @@ async function loadData() {
   }
 }
 
+function resetForm() {
+  Object.assign(ruleForm, {
+    id: 0,
+    name: '',
+    rule_type: '',
+    condition_field: '',
+    condition_operator: 'equals',
+    condition_value: '',
+    alert_level: 'warning',
+    description: '',
+    enabled: true,
+    require_network: false
+  })
+  
+  ruleFormRef.value?.clearValidate()
+}
+
 function showAddDialog() {
   isEdit.value = false
   resetForm()
@@ -431,17 +507,111 @@ function editRule(row: any) {
   dialogVisible.value = true
 }
 
+// 重置内置规则
+async function resetBuiltinRules() {
+  try {
+    await ElMessageBox.confirm(
+      '确定要重置内置规则吗？这将删除所有银狐病毒相关的内置规则并重新安装最新版本。',
+      '确认重置',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    resetting.value = true
+    await ResetBuiltinRules()
+    ElMessage.success('内置规则重置成功')
+    await loadData() // 重新加载数据
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      console.error('重置内置规则失败:', error)
+      ElMessage.error('重置内置规则失败: ' + (error?.message || error))
+    }
+  } finally {
+    resetting.value = false
+  }
+}
+
+// 解析匹配值，支持多行或逗号分隔
+function parseConditionValues(valueString: string): string[] {
+  if (!valueString || !valueString.trim()) return []
+  
+  // 先按换行分割
+  const lines = valueString.split('\n')
+  const values: string[] = []
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim()
+    if (!trimmedLine) continue
+    
+    // 如果包含逗号，进一步分割
+    if (trimmedLine.includes(',')) {
+      const parts = trimmedLine.split(',').map(p => p.trim()).filter(p => p)
+      values.push(...parts)
+    } else {
+      values.push(trimmedLine)
+    }
+  }
+  
+  // 去重
+  return [...new Set(values)]
+}
+
+// 获取将要创建的规则数量
+function getValueCount(): number {
+  const values = parseConditionValues(ruleForm.condition_value)
+  return Math.max(values.length, 1)
+}
+
 async function submitForm() {
   try {
     await ruleFormRef.value.validate()
     submitting.value = true
     
     if (isEdit.value) {
+      // 编辑模式：不支持批量，直接更新
       await UpdateAlertRule(ruleForm)
       ElMessage.success('规则更新成功')
     } else {
-      await CreateAlertRule(ruleForm)
-      ElMessage.success('规则创建成功')
+      // 新建模式：解析匹配值，支持批量创建
+      const values = parseConditionValues(ruleForm.condition_value)
+      
+      if (values.length === 0) {
+        ElMessage.error('请输入匹配值')
+        return
+      }
+      
+      if (values.length === 1) {
+        // 单条规则
+        await CreateAlertRule({ ...ruleForm, condition_value: values[0] })
+        ElMessage.success('规则创建成功')
+      } else {
+        // 批量创建
+        let successCount = 0
+        let failCount = 0
+        
+        for (const value of values) {
+          try {
+            await CreateAlertRule({
+              ...ruleForm,
+              name: `${ruleForm.name} - ${value}`,
+              condition_value: value
+            })
+            successCount++
+          } catch (error) {
+            console.error(`创建规则失败 (${value}):`, error)
+            failCount++
+          }
+        }
+        
+        if (successCount > 0) {
+          ElMessage.success(`成功创建 ${successCount} 条规则` + (failCount > 0 ? `，失败 ${failCount} 条` : ''))
+        } else {
+          ElMessage.error('批量创建失败')
+        }
+      }
     }
     
     dialogVisible.value = false
@@ -486,19 +656,6 @@ async function toggleEnabled(row: any) {
   }
 }
 
-function resetForm() {
-  ruleForm.id = 0
-  ruleForm.name = ''
-  ruleForm.rule_type = ''
-  ruleForm.condition_field = ''
-  ruleForm.condition_operator = 'equals'
-  ruleForm.condition_value = ''
-  ruleForm.alert_level = 'warning'
-  ruleForm.description = ''
-  ruleForm.enabled = true
-  
-  ruleFormRef.value?.clearValidate()
-}
 
 function handleRuleTypeChange(value: string) {
   // 根据规则类型自动设置默认字段
@@ -539,6 +696,120 @@ function getAvailableFields() {
 
 function showRegexHelp() {
   regexHelpVisible.value = true
+}
+
+// 导出规则为JSON
+async function exportRules() {
+  try {
+    // 获取所有规则（不分页）
+    const allRules = await QueryAlertRules({
+      page: 1,
+      page_size: 10000,
+      rule_type: '',
+      enabled: undefined
+    })
+    
+    if (!allRules.rules || allRules.rules.length === 0) {
+      ElMessage.warning('没有可导出的规则')
+      return
+    }
+    
+    // 移除id、created_at、updated_at等后端字段
+    const exportData = allRules.rules.map((rule: any) => ({
+      name: rule.name,
+      rule_type: rule.rule_type,
+      condition_field: rule.condition_field,
+      condition_operator: rule.condition_operator,
+      condition_value: rule.condition_value,
+      alert_level: rule.alert_level,
+      description: rule.description,
+      enabled: rule.enabled
+    }))
+    
+    // 创建Blob并下载
+    const jsonStr = JSON.stringify(exportData, null, 2)
+    const blob = new Blob([jsonStr], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `alert_rules_${new Date().getTime()}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    
+    ElMessage.success(`已导出 ${exportData.length} 条规则`)
+  } catch (error) {
+    console.error('导出规则失败:', error)
+    ElMessage.error('导出规则失败')
+  }
+}
+
+// 触发文件选择
+function importRules() {
+  fileInputRef.value?.click()
+}
+
+// 处理文件选择
+async function handleFileSelect(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  
+  if (!file) return
+  
+  try {
+    const text = await file.text()
+    const rules = JSON.parse(text)
+    
+    if (!Array.isArray(rules)) {
+      ElMessage.error('JSON格式错误：期望一个数组')
+      return
+    }
+    
+    // 确认导入
+    await ElMessageBox.confirm(
+      `即将导入 ${rules.length} 条规则，是否继续？`,
+      '导入确认',
+      {
+        confirmButtonText: '导入',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    let successCount = 0
+    let failCount = 0
+    
+    for (const rule of rules) {
+      try {
+        // 验证必填字段
+        if (!rule.name || !rule.rule_type || !rule.condition_field || 
+            !rule.condition_operator || !rule.condition_value || !rule.alert_level) {
+          failCount++
+          continue
+        }
+        
+        await CreateAlertRule(rule)
+        successCount++
+      } catch (error) {
+        console.error('导入规则失败:', error)
+        failCount++
+      }
+    }
+    
+    if (successCount > 0) {
+      ElMessage.success(`成功导入 ${successCount} 条规则` + (failCount > 0 ? `，失败 ${failCount} 条` : ''))
+      loadData()
+    } else {
+      ElMessage.error('导入失败')
+    }
+  } catch (error) {
+    console.error('导入规则失败:', error)
+    ElMessage.error('导入规则失败：' + (error instanceof Error ? error.message : '未知错误'))
+  } finally {
+    // 清空input值，允许重复选择同一文件
+    target.value = ''
+  }
 }
 
 function handleFilterChange() {

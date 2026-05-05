@@ -17,11 +17,11 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 
-	"sniffer/internal/capture"
-	"sniffer/internal/config"
-	"sniffer/internal/scheduler"
-	"sniffer/internal/server"
-	"sniffer/internal/store"
+	"fastmonitor/internal/capture"
+	"fastmonitor/internal/config"
+	"fastmonitor/internal/scheduler"
+	"fastmonitor/internal/server"
+	"fastmonitor/internal/store"
 )
 
 //go:embed all:frontend/dist
@@ -29,6 +29,8 @@ var assets embed.FS
 
 //go:embed build/appicon.png
 var icon []byte
+
+// GeoIP数据从assets embed.FS中读取，避免重复嵌入
 
 func main() {
 	// Load configuration
@@ -80,7 +82,7 @@ func main() {
 
 	// Create Wails application
 	err = wails.Run(&options.App{
-		Title:             "Network Packet Sniffer",
+		Title:             "FastMonitor - 网络流量监控与威胁检测工具 v1.1.0",
 		Width:             1400,
 		Height:            900,
 		MinWidth:          1200,
@@ -95,6 +97,7 @@ func main() {
 		BackgroundColour:  &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		AssetServer: &assetserver.Options{
 			Assets: assets,
+			Handler: nil, // 使用默认handler来提供embed的文件
 		},
 		Menu:             nil,
 		Logger:           nil,
@@ -121,16 +124,16 @@ func main() {
 				TitlebarAppearsTransparent: true,
 				HideTitle:                  false,
 				HideTitleBar:               false,
-				FullSizeContent:            false,
-				UseToolbar:                 false,
+				FullSizeContent:            true,  // 启用全尺寸内容，沉浸式体验
+				UseToolbar:                 true,  // 启用工具栏
 				HideToolbarSeparator:       true,
 			},
-			Appearance:           mac.NSAppearanceNameDarkAqua,
+			Appearance:           mac.DefaultAppearance, // 跟随系统外观设置
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  true,
 			About: &mac.AboutInfo{
-				Title:   "Network Packet Sniffer",
-				Message: "A powerful network packet capture and analysis tool built with Wails",
+				Title:   "FastMonitor - 网络流量监控与威胁检测工具 v1.1.0",
+				Message: "高性能跨平台网络流量监控与威胁检测系统\n\n基于 Wails 框架开发，集成数据包捕获、协议解析、进程关联、威胁情报、可视化分析等核心功能。",
 				Icon:    icon,
 			},
 		},
@@ -144,3 +147,4 @@ func main() {
 	}
 }
 
+// extractGeoIPDatabases 函数已废弃 - GeoIP数据库现在直接从embed读取，无需提取到磁盘

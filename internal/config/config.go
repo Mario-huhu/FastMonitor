@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-	"sniffer/pkg/bytesize"
+	"fastmonitor/pkg/bytesize"
 )
 
 // Config represents the application configuration
@@ -60,6 +60,13 @@ type Limits struct {
 
 // Default returns a config with default values
 func Default() *Config {
+	// 使用用户目录下的 .sniffer 作为默认数据目录
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
+	}
+	dataDir := filepath.Join(homeDir, ".sniffer", "data")
+	
 	return &Config{
 		RawMax:           20000,
 		DNSMax:           5000,
@@ -70,9 +77,9 @@ func Default() *Config {
 		PcapCompress:     3,
 		DBVacuumDay:      7,
 		DBVacuumInterval: "1h",
-		DataDir:          "./data",
-		PcapDir:          "./data/pcap",
-		DBPath:           "./data/sniffer.db",
+		DataDir:          dataDir,
+		PcapDir:          filepath.Join(dataDir, "pcap"),
+		DBPath:           filepath.Join(dataDir, "sniffer.db"),
 		SnapshotLen:      65535,
 		Promiscuous:      true,
 		Timeout:          "30ms",

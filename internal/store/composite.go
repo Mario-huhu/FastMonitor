@@ -4,8 +4,8 @@ import (
 	"io"
 	"time"
 
-	"sniffer/internal/config"
-	"sniffer/pkg/model"
+	"fastmonitor/internal/config"
+	"fastmonitor/pkg/model"
 )
 
 // CompositeStore combines PCAP file storage and SQLite session storage

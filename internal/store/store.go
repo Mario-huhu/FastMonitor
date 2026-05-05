@@ -4,7 +4,7 @@ import (
 	"io"
 	"time"
 
-	"sniffer/pkg/model"
+	"fastmonitor/pkg/model"
 )
 
 // Store is the interface for packet and session storage

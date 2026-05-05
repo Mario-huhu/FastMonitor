@@ -3,6 +3,7 @@ package process
 import (
 	"database/sql"
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -22,26 +23,98 @@ type ProcessStats struct {
 	LastSeen     time.Time `json:"last_seen"`
 }
 
+// ProcessPacket 进程数据包记录（用于缓存最近的数据包）
+type ProcessPacket struct {
+	Timestamp time.Time `json:"timestamp"`
+	SrcIP     string    `json:"src_ip"`
+	DstIP     string    `json:"dst_ip"`
+	SrcPort   uint16    `json:"src_port"`
+	DstPort   uint16    `json:"dst_port"`
+	Protocol  string    `json:"protocol"`
+	Size      int       `json:"size"`
+	IsSent    bool      `json:"is_sent"` // true=发送, false=接收
+}
+
+// PacketRingBuffer 数据包环形缓冲区
+type PacketRingBuffer struct {
+	packets []ProcessPacket
+	size    int
+	head    int
+	count   int
+}
+
+// NewPacketRingBuffer 创建环形缓冲区
+func NewPacketRingBuffer(size int) *PacketRingBuffer {
+	return &PacketRingBuffer{
+		packets: make([]ProcessPacket, size),
+		size:    size,
+	}
+}
+
+// Push 添加数据包
+func (rb *PacketRingBuffer) Push(pkt ProcessPacket) {
+	rb.packets[rb.head] = pkt
+	rb.head = (rb.head + 1) % rb.size
+	if rb.count < rb.size {
+		rb.count++
+	}
+}
+
+// GetAll 获取所有缓存的数据包（按时间倒序）
+func (rb *PacketRingBuffer) GetAll() []ProcessPacket {
+	if rb.count == 0 {
+		return nil
+	}
+	
+	result := make([]ProcessPacket, rb.count)
+	for i := 0; i < rb.count; i++ {
+		// 从最新的开始取
+		idx := (rb.head - 1 - i + rb.size) % rb.size
+		result[i] = rb.packets[idx]
+	}
+	return result
+}
+
 // ProcessStatsManager 进程统计管理器（性能优化版，按可执行文件路径汇总）
 type ProcessStatsManager struct {
 	mu    sync.RWMutex
 	db    *sql.DB
 	stats map[string]*ProcessStats // 按可执行文件路径汇总，key=exe
 	
+	// 数据包缓存（每个进程缓存最近10个数据包）
+	packetCache map[string]*PacketRingBuffer // key=exe
+	cacheSize   int                          // 每个进程缓存的数据包数量
+	
 	// 性能优化配置
 	flushInterval time.Duration // 批量写入间隔
 	batchSize     int           // 批量写入大小
 	stopChan      chan struct{}
+	
+	// macOS优化: 使用更大的内存缓冲
+	maxMemoryStats int // 内存中最大统计条目数
 }
 
 // NewProcessStatsManager 创建进程统计管理器
 func NewProcessStatsManager(db *sql.DB) *ProcessStatsManager {
+	// macOS优化: 使用更长的刷新间隔和更大的缓冲
+	flushInterval := 10 * time.Second
+	maxMemoryStats := 500
+	
+	if runtime.GOOS == "darwin" {
+		// macOS上使用更长的间隔减少磁盘IO
+		flushInterval = 15 * time.Second
+		maxMemoryStats = 1000
+	}
+	
 	psm := &ProcessStatsManager{
-		db:            db,
-		stats:         make(map[string]*ProcessStats),
-		flushInterval: 10 * time.Second, // 每10秒批量写入一次
-		batchSize:     100,
-		stopChan:      make(chan struct{}),
+		db:             db,
+		stats:          make(map[string]*ProcessStats),
+		packetCache:    make(map[string]*PacketRingBuffer),
+		cacheSize:      10, // 每个进程缓存10个数据包
+		flushInterval:  flushInterval,
+		batchSize:      100,
+		maxMemoryStats: maxMemoryStats,
+		stopChan:       make(chan struct{}),
 	}
 	
 	// 初始化数据库表
@@ -95,6 +168,11 @@ func (psm *ProcessStatsManager) initDB() error {
 
 // RecordPacket 记录数据包（高性能，仅更新内存）
 func (psm *ProcessStatsManager) RecordPacket(pid int32, procInfo *ProcessInfo, isSent bool, packetSize int) {
+	psm.RecordPacketWithDetails(pid, procInfo, isSent, packetSize, "", "", 0, 0, "")
+}
+
+// RecordPacketWithDetails 记录数据包（带详细信息，用于缓存）
+func (psm *ProcessStatsManager) RecordPacketWithDetails(pid int32, procInfo *ProcessInfo, isSent bool, packetSize int, srcIP, dstIP string, srcPort, dstPort uint16, protocol string) {
 	if pid == 0 || procInfo == nil {
 		return
 	}
@@ -106,6 +184,12 @@ func (psm *ProcessStatsManager) RecordPacket(pid int32, procInfo *ProcessInfo, i
 	
 	psm.mu.Lock()
 	defer psm.mu.Unlock()
+	
+	// 检查内存限制
+	if len(psm.stats) >= psm.maxMemoryStats {
+		// 触发异步刷新
+		go psm.FlushToDB()
+	}
 	
 	exeKey := procInfo.Exe
 	stat, exists := psm.stats[exeKey]
@@ -133,6 +217,26 @@ func (psm *ProcessStatsManager) RecordPacket(pid int32, procInfo *ProcessInfo, i
 		stat.BytesRecv += int64(packetSize)
 	}
 	stat.LastSeen = time.Now()
+	
+	// 缓存数据包详情（如果提供了详细信息）
+	if srcIP != "" || dstIP != "" {
+		cache, exists := psm.packetCache[exeKey]
+		if !exists {
+			cache = NewPacketRingBuffer(psm.cacheSize)
+			psm.packetCache[exeKey] = cache
+		}
+		
+		cache.Push(ProcessPacket{
+			Timestamp: time.Now(),
+			SrcIP:     srcIP,
+			DstIP:     dstIP,
+			SrcPort:   srcPort,
+			DstPort:   dstPort,
+			Protocol:  protocol,
+			Size:      packetSize,
+			IsSent:    isSent,
+		})
+	}
 }
 
 // RecordConnection 记录连接数
@@ -367,10 +471,22 @@ func (psm *ProcessStatsManager) GetAllStats(offset, limit int) ([]ProcessStats, 
 func (psm *ProcessStatsManager) ClearAll() error {
 	psm.mu.Lock()
 	psm.stats = make(map[string]*ProcessStats)
+	psm.packetCache = make(map[string]*PacketRingBuffer)
 	psm.mu.Unlock()
 	
 	_, err := psm.db.Exec("DELETE FROM process_stats")
 	return err
+}
+
+// GetProcessPackets 获取指定进程的缓存数据包
+func (psm *ProcessStatsManager) GetProcessPackets(exe string) []ProcessPacket {
+	psm.mu.RLock()
+	defer psm.mu.RUnlock()
+	
+	if cache, exists := psm.packetCache[exe]; exists {
+		return cache.GetAll()
+	}
+	return nil
 }
 
 // Stop 停止管理器

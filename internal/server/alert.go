@@ -3,7 +3,7 @@ package server
 import (
 	"fmt"
 
-	"sniffer/pkg/model"
+	"fastmonitor/pkg/model"
 )
 
 // CreateAlertRule 创建告警规则
@@ -149,5 +149,23 @@ func (a *App) ClearAllAlerts() error {
 	}
 
 	return sqliteStore.ClearAllAlerts()
+}
+
+// ResetBuiltinRules 重置内置规则
+func (a *App) ResetBuiltinRules() error {
+	sqliteStore := a.store.GetDB()
+	if sqliteStore == nil {
+		return fmt.Errorf("database not available")
+	}
+
+	// 删除所有内置规则（is_builtin = 1）
+	db := sqliteStore.GetRawDB()
+	_, err := db.Exec("DELETE FROM alert_rules WHERE is_builtin = 1")
+	if err != nil {
+		return fmt.Errorf("delete builtin rules: %w", err)
+	}
+
+	// 重新初始化内置规则
+	return sqliteStore.InitBuiltinAlertRules()
 }
 

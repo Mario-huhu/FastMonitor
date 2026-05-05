@@ -1,15 +1,42 @@
 <template>
-  <div id="app" class="app-container">
+  <div id="app" class="app-container" :class="{ 'macos-fullsize': isMacOS }">
+    <!-- macOS 标题栏拖拽区域 -->
+    <div v-if="isMacOS" class="macos-titlebar-drag-region"></div>
     <router-view />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
+
+const isMacOS = ref(false)
 
 onMounted(() => {
-  // Set dark mode by default
-  document.documentElement.classList.add('dark')
+  // 检测是否为 macOS
+  isMacOS.value = navigator.platform.toLowerCase().includes('mac')
+  
+  // 检测系统主题偏好
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)')
+  
+  // 设置初始主题
+  if (prefersDark.matches) {
+    document.documentElement.classList.add('dark')
+    document.documentElement.classList.remove('light')
+  } else {
+    document.documentElement.classList.add('light')
+    document.documentElement.classList.remove('dark')
+  }
+  
+  // 监听系统主题变化
+  prefersDark.addEventListener('change', (e) => {
+    if (e.matches) {
+      document.documentElement.classList.add('dark')
+      document.documentElement.classList.remove('light')
+    } else {
+      document.documentElement.classList.add('light')
+      document.documentElement.classList.remove('dark')
+    }
+  })
 })
 </script>
 
@@ -23,6 +50,10 @@ onMounted(() => {
 html, body {
   height: 100%;
   overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 13px;
 }
 
 .app-container {
@@ -30,6 +61,32 @@ html, body {
   height: 100vh;
   background: var(--el-bg-color);
   color: var(--el-text-color-primary);
+  overflow: hidden;
+}
+
+/* macOS 全尺寸内容支持 */
+.macos-fullsize {
+  padding-top: 28px; /* 为标题栏留出空间 */
+}
+
+/* macOS 标题栏拖拽区域 */
+.macos-titlebar-drag-region {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  -webkit-app-region: drag; /* 允许拖拽窗口 */
+  z-index: 9999;
+  background: transparent;
+}
+
+/* 确保按钮等交互元素不被拖拽区域影响 */
+.macos-titlebar-drag-region button,
+.macos-titlebar-drag-region a,
+.macos-titlebar-drag-region input,
+.macos-titlebar-drag-region select {
+  -webkit-app-region: no-drag;
 }
 
 /* 专业级深色主题 - Cyberpunk Tech风格 */
@@ -167,25 +224,39 @@ html, body {
   background: linear-gradient(135deg, #fafafa 0%, #ffffff 50%, #f5f5f5 100%);
 }
 
-/* 高级滚动条 */
+/* 高级滚动条 - Mac 风格 */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--el-fill-color);
-  border-radius: 5px;
+  background: transparent;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(135deg, var(--el-color-primary) 0%, var(--el-color-primary-light-3) 100%);
-  border-radius: 5px;
+  background: rgba(128, 128, 128, 0.4);
+  border-radius: 4px;
   transition: all 0.3s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(135deg, var(--el-color-primary-light-3) 0%, var(--el-color-primary-light-5) 100%);
-  box-shadow: 0 0 12px var(--el-color-primary);
+  background: rgba(128, 128, 128, 0.6);
+}
+
+/* 隐藏滚动条但保持滚动功能 - Mac 风格 */
+.el-table__body-wrapper::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.el-table__body-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.3);
+  border-radius: 3px;
+}
+
+.el-table__body-wrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.5);
 }
 </style>

@@ -8,13 +8,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"sniffer/internal/cache"
-	"sniffer/internal/config"
-	"sniffer/internal/netio"
-	"sniffer/internal/parser"
-	"sniffer/internal/process"
-	"sniffer/internal/store"
-	"sniffer/pkg/model"
+	"fastmonitor/internal/cache"
+	"fastmonitor/internal/config"
+	"fastmonitor/internal/netio"
+	"fastmonitor/internal/parser"
+	"fastmonitor/internal/process"
+	"fastmonitor/internal/store"
+	"fastmonitor/pkg/model"
 )
 
 var (
@@ -48,8 +48,8 @@ type Capture struct {
 	lastBytes      int64
 	metricsC       chan model.Metrics
 	
-	// 进程映射器 (100%准确方案)
-	processMapper  *process.ProcessMapper
+	// 进程映射器 (平台特定实现)
+	processMapper  process.IProcessMapper
 	processStats   *process.ProcessStatsManager
 }
 
@@ -66,8 +66,8 @@ func New(cfg *config.Config, s store.Store) *Capture {
 		rings:         cache.NewRingSet(limits.RawMax, limits.DNSMax, limits.HTTPMax, limits.ICMPMax),
 		lastMetrics:   time.Now(),
 		metricsC:      make(chan model.Metrics, 10),
-		processMapper: process.NewProcessMapper(),                // 初始化进程映射器
-		processStats:  process.NewProcessStatsManager(db),        // 初始化进程统计
+		processMapper: process.NewPlatformProcessMapper(), // 使用平台特定的进程映射器
+		processStats:  process.NewProcessStatsManager(db),
 	}
 }
 
@@ -199,6 +199,10 @@ func (c *Capture) UpdateLimits(limits config.Limits) {
 
 // captureLoop is the main packet capture loop
 func (c *Capture) captureLoop() {
+	// macOS优化: 使用批量处理减少锁竞争
+	batchSize := 10
+	packetBatch := make([]*model.Packet, 0, batchSize)
+	
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -258,8 +262,11 @@ func (c *Capture) captureLoop() {
 						pkt.ProcessName = procInfo.Name
 						pkt.ProcessExe = procInfo.Exe
 						
-						// 记录进程统计（性能优化：仅更新内存）
-						c.processStats.RecordPacket(pid, procInfo, srcIsLocal, pkt.Length)
+						// 记录进程统计（带详细信息用于缓存）
+						c.processStats.RecordPacketWithDetails(
+							pid, procInfo, srcIsLocal, pkt.Length,
+							pkt.SrcIP, pkt.DstIP, pkt.SrcPort, pkt.DstPort, pkt.Protocol,
+						)
 					}
 				} else {
 					// 方案2: 五元组失败，使用本地端口匹配
@@ -274,8 +281,11 @@ func (c *Capture) captureLoop() {
 							pkt.ProcessName = procInfo.Name
 							pkt.ProcessExe = procInfo.Exe
 							
-							// 记录进程统计
-							c.processStats.RecordPacket(pid, procInfo, srcIsLocal, pkt.Length)
+							// 记录进程统计（带详细信息用于缓存）
+							c.processStats.RecordPacketWithDetails(
+								pid, procInfo, srcIsLocal, pkt.Length,
+								pkt.SrcIP, pkt.DstIP, pkt.SrcPort, pkt.DstPort, pkt.Protocol,
+							)
 						}
 					}
 				}
@@ -293,109 +303,62 @@ func (c *Capture) captureLoop() {
 		// Store raw packet
 		c.rings.GetRaw().Push(pkt)
 		
-		// Write to persistent storage (non-blocking)
-		go func(p *model.Packet) {
-			if err := c.store.WriteRaw(p); err != nil {
-				// Log error but don't stop capture
-				fmt.Printf("Error writing raw packet: %v\n", err)
-			}
-		}(pkt)
+		// 批量处理优化
+		packetBatch = append(packetBatch, pkt)
+		if len(packetBatch) >= batchSize {
+			// 批量写入
+			batch := packetBatch
+			packetBatch = make([]*model.Packet, 0, batchSize)
+			go c.processBatch(batch)
+		}
+	}
+}
 
-		// 实时更新会话流统计（异步）
-		go func(p *model.Packet) {
-			sqliteStore := c.store.GetDB()
-			if err := sqliteStore.UpsertSessionFlow(p); err != nil {
-				// 不打印太多日志，避免影响性能
-				if c.packetsTotal.Load()%1000 == 0 {
-					fmt.Printf("[WARN] Session flow upsert failed: %v\n", err)
-				}
-			}
-		}(pkt)
+// processBatch 批量处理数据包
+func (c *Capture) processBatch(packets []*model.Packet) {
+	for _, pkt := range packets {
+		// Write to persistent storage
+		if err := c.store.WriteRaw(pkt); err != nil {
+			fmt.Printf("Error writing raw packet: %v\n", err)
+		}
 
-		// Try to parse as DNS (立即持久化)
+		// 实时更新会话流统计
+		sqliteStore := c.store.GetDB()
+		if err := sqliteStore.UpsertSessionFlow(pkt); err != nil {
+			if c.packetsTotal.Load()%1000 == 0 {
+				fmt.Printf("[WARN] Session flow upsert failed: %v\n", err)
+			}
+		}
+
+		// Try to parse as DNS
 		if dnsSession, err := parser.ParseDNS(pkt); err == nil {
-			// 先写入环形缓冲区（用于实时显示）
 			c.rings.GetDNS().Push(dnsSession)
-			
-			// 立即异步写入数据库（永久保存）
-			go func(s *model.Session) {
-				startTime := time.Now()
-				if err := c.store.WriteSession(model.TableDNS, s); err != nil {
-					// 只在失败时打印错误
-					fmt.Printf("[ERROR] ❌ DNS写入数据库失败: %v | domain=%s\n", err, s.Domain)
-				} else {
-					duration := time.Since(startTime)
-					// 只在写入慢时打印警告
-					if duration > 100*time.Millisecond {
-						fmt.Printf("[WARN] DNS写入慢: %v | domain=%s\n", duration, s.Domain)
-					}
-				}
-			}(dnsSession)
-			
-			// 检查告警规则
-			go func(p *model.Packet, s *model.Session) {
-				sqliteStore := c.store.GetDB()
-				if err := sqliteStore.CheckAlertRules(p, s); err != nil {
-					// 忽略告警检查错误，不影响主流程
-				}
-			}(pkt, dnsSession)
+			if err := c.store.WriteSession(model.TableDNS, dnsSession); err != nil {
+				fmt.Printf("[ERROR] DNS写入失败: %v\n", err)
+			}
+			sqliteStore.CheckAlertRules(pkt, dnsSession)
 		}
 
-		// Try to parse as HTTP (立即持久化)
+		// Try to parse as HTTP
 		if httpSession, err := parser.ParseHTTP(pkt); err == nil {
-			// 先写入环形缓冲区
 			c.rings.GetHTTP().Push(httpSession)
-			
-			// 立即异步写入数据库
-			go func(s *model.Session) {
-				startTime := time.Now()
-				if err := c.store.WriteSession(model.TableHTTP, s); err != nil {
-					fmt.Printf("[ERROR] HTTP写入失败: %v | method=%s, host=%s\n", err, s.Method, s.Host)
-				} else {
-					duration := time.Since(startTime)
-					if duration > 100*time.Millisecond {
-						fmt.Printf("[WARN] HTTP写入慢: %v | host=%s\n", duration, s.Host)
-					}
-				}
-			}(httpSession)
-			
-			// 检查告警规则
-			go func(p *model.Packet, s *model.Session) {
-				sqliteStore := c.store.GetDB()
-				sqliteStore.CheckAlertRules(p, s)
-			}(pkt, httpSession)
+			if err := c.store.WriteSession(model.TableHTTP, httpSession); err != nil {
+				fmt.Printf("[ERROR] HTTP写入失败: %v\n", err)
+			}
+			sqliteStore.CheckAlertRules(pkt, httpSession)
 		}
 
-		// Try to parse as ICMP (立即持久化)
+		// Try to parse as ICMP
 		if icmpSession, err := parser.ParseICMP(pkt); err == nil {
-			// 先写入环形缓冲区
 			c.rings.GetICMP().Push(icmpSession)
-			
-			// 立即异步写入数据库
-			go func(s *model.Session) {
-				startTime := time.Now()
-				if err := c.store.WriteSession(model.TableICMP, s); err != nil {
-					fmt.Printf("[ERROR] ICMP写入失败: %v | type=%s, src=%s\n", err, s.ICMPType, s.FiveTuple.SrcIP)
-				} else {
-					duration := time.Since(startTime)
-					if duration > 100*time.Millisecond {
-						fmt.Printf("[WARN] ICMP写入慢: %v | src=%s\n", duration, s.FiveTuple.SrcIP)
-					}
-				}
-			}(icmpSession)
-			
-			// 检查告警规则
-			go func(p *model.Packet, s *model.Session) {
-				sqliteStore := c.store.GetDB()
-				sqliteStore.CheckAlertRules(p, s)
-			}(pkt, icmpSession)
+			if err := c.store.WriteSession(model.TableICMP, icmpSession); err != nil {
+				fmt.Printf("[ERROR] ICMP写入失败: %v\n", err)
+			}
+			sqliteStore.CheckAlertRules(pkt, icmpSession)
 		}
 		
-		// 检查目标IP告警（对所有数据包）
-		go func(p *model.Packet) {
-			sqliteStore := c.store.GetDB()
-			sqliteStore.CheckAlertRules(p, nil)
-		}(pkt)
+		// 检查目标IP告警
+		sqliteStore.CheckAlertRules(pkt, nil)
 	}
 }
 
@@ -495,3 +458,27 @@ func (c *Capture) ClearProcessStats() error {
 	return c.processStats.ClearAll()
 }
 
+// GetProcessPackets 获取指定进程的缓存数据包
+func (c *Capture) GetProcessPackets(exe string) []process.ProcessPacket {
+	return c.processStats.GetProcessPackets(exe)
+}
+
+
+
+// ProcessStatsWithPackets 带数据包缓存的进程统计
+type ProcessStatsWithPackets struct {
+	process.ProcessStats
+	RecentPackets []process.ProcessPacket `json:"recent_packets"`
+}
+
+// ProcessPacketInfo 数据包信息（用于API返回）
+type ProcessPacketInfo struct {
+	Timestamp time.Time `json:"timestamp"`
+	SrcIP     string    `json:"src_ip"`
+	DstIP     string    `json:"dst_ip"`
+	SrcPort   uint16    `json:"src_port"`
+	DstPort   uint16    `json:"dst_port"`
+	Protocol  string    `json:"protocol"`
+	Size      int       `json:"size"`
+	IsSent    bool      `json:"is_sent"`
+}

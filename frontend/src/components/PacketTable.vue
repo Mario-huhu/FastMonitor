@@ -121,46 +121,35 @@
       <div class="table-wrapper">
         <el-table
           :data="filteredData"
-          height="calc(100vh - 450px)"
           stripe
           style="width: 100%"
           :default-sort="{ prop: 'timestamp', order: 'descending' }"
           :highlight-current-row="true"
           @sort-change="handleSortChange"
         >
-        <el-table-column prop="id" label="ID" width="80" sortable="custom" />
-        <el-table-column prop="timestamp" label="时间戳" width="200" sortable="custom">
+        <el-table-column prop="id" label="ID" width="55" sortable="custom" />
+        <el-table-column prop="timestamp" label="时间" width="85" sortable="custom">
           <template #default="{ row }">
             {{ formatTimestamp(row.timestamp) }}
           </template>
         </el-table-column>
-        <el-table-column prop="src_ip" label="源IP" width="150" sortable="custom" />
-        <el-table-column prop="dst_ip" label="目标IP" width="150" sortable="custom" />
-        <el-table-column prop="src_port" label="源端口" width="100" sortable="custom" />
-        <el-table-column prop="dst_port" label="目标端口" width="100" sortable="custom" />
-        <el-table-column prop="protocol" label="协议" width="100" sortable="custom">
+        <el-table-column prop="src_ip" label="源IP" width="115" show-overflow-tooltip sortable="custom" />
+        <el-table-column prop="dst_ip" label="目标IP" width="115" show-overflow-tooltip sortable="custom" />
+        <el-table-column prop="src_port" label="源端口" width="65" sortable="custom" />
+        <el-table-column prop="dst_port" label="目标端口" width="75" sortable="custom" />
+        <el-table-column prop="protocol" label="协议" width="65" sortable="custom">
           <template #default="{ row }">
-            <el-tag :type="getProtocolType(row.protocol)" size="small">
-              {{ row.protocol }}
-            </el-tag>
+            <span :class="'protocol-' + (row.protocol || '').toLowerCase()">{{ row.protocol }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="length" label="长度" width="100" sortable="custom" />
-        <el-table-column prop="process_name" label="进程" width="150" sortable="custom">
+        <el-table-column prop="length" label="长度" width="60" sortable="custom" />
+        <el-table-column prop="process_name" label="进程" width="90" show-overflow-tooltip sortable="custom">
           <template #default="{ row }">
-            <el-tooltip v-if="row.process_name" :content="`PID: ${row.process_pid} | 路径: ${row.process_exe || '未知'}`" placement="top">
-              <el-tag type="success" size="small">
-                <el-icon style="margin-right: 4px;"><Connection /></el-icon>
-                {{ row.process_name }}
-              </el-tag>
-            </el-tooltip>
-            <el-tag v-else type="info" size="small">
-              <el-icon style="margin-right: 4px;"><QuestionFilled /></el-icon>
-              未关联
-            </el-tag>
+            <span v-if="row.process_name" class="process-name">{{ row.process_name }}</span>
+            <span v-else class="process-none">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="layer_info" label="协议栈" min-width="300" show-overflow-tooltip sortable="custom" />
+        <el-table-column prop="layer_info" label="协议栈" min-width="200" show-overflow-tooltip sortable="custom" />
         </el-table>
       </div>
     </div>
@@ -367,8 +356,27 @@ function parseLayerInfo(layerInfo: string): string[] {
 }
 
 function formatTimestamp(ts: string): string {
+  if (!ts) return '-'
   const date = new Date(ts)
-  return date.toLocaleString('zh-CN')
+  const now = new Date()
+  const isToday = date.toDateString() === now.toDateString()
+  
+  if (isToday) {
+    return date.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    })
+  }
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  })
 }
 
 function getProtocolType(protocol: string): string {
@@ -391,15 +399,17 @@ function getProtocolType(protocol: string): string {
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 
   .table-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
+    flex-shrink: 0;
 
     .packet-count {
-      font-size: 14px;
+      font-size: 13px;
       color: var(--el-text-color-secondary);
     }
   }
@@ -407,41 +417,52 @@ function getProtocolType(protocol: string): string {
   .packet-content {
     flex: 1;
     display: flex;
-    gap: 16px;
+    gap: 12px;
     overflow: hidden;
+    min-height: 0;
 
     .filter-nav {
-      width: 260px;
+      width: 220px;
+      flex-shrink: 0;
       background: var(--el-bg-color-overlay);
       border-radius: 8px;
-      padding: 16px;
+      padding: 12px;
       overflow-y: auto;
-      max-height: calc(100vh - 450px);
 
       .nav-title {
-        font-size: 16px;
+        font-size: 14px;
         font-weight: 600;
-        margin-bottom: 16px;
+        margin-bottom: 12px;
         color: var(--el-text-color-primary);
       }
 
       .el-collapse {
         border: none;
+        
+        :deep(.el-collapse-item__header) {
+          font-size: 13px;
+          height: 36px;
+          line-height: 36px;
+        }
+        
+        :deep(.el-collapse-item__content) {
+          padding-bottom: 12px;
+        }
       }
 
       .protocol-filter {
         .protocol-section {
-          margin-bottom: 16px;
+          margin-bottom: 12px;
 
           &:last-child {
             margin-bottom: 0;
           }
 
           .section-title {
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 500;
             color: var(--el-text-color-regular);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             padding-left: 4px;
             border-left: 3px solid var(--el-color-primary);
           }
@@ -449,14 +470,14 @@ function getProtocolType(protocol: string): string {
           .el-checkbox-group {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 6px;
+            gap: 4px;
 
             .el-checkbox {
               margin: 0;
               
               :deep(.el-checkbox__label) {
-                padding-left: 6px;
-                font-size: 12px;
+                padding-left: 4px;
+                font-size: 11px;
               }
             }
           }
@@ -464,58 +485,102 @@ function getProtocolType(protocol: string): string {
       }
 
       .ip-list {
-        max-height: 200px;
+        max-height: 160px;
         overflow-y: auto;
 
         .ip-item {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 6px 0;
+          padding: 4px 0;
           cursor: pointer;
           transition: background 0.2s;
 
           &:hover {
             background: var(--el-fill-color-light);
             border-radius: 4px;
-            padding-left: 8px;
-            padding-right: 8px;
+            padding-left: 6px;
+            padding-right: 6px;
+          }
+
+          .el-tag {
+            font-size: 11px;
+            max-width: 140px;
+            overflow: hidden;
+            text-overflow: ellipsis;
           }
 
           .ip-count {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--el-text-color-secondary);
-            margin-left: 8px;
+            margin-left: 6px;
           }
         }
       }
 
       .current-filters {
-        margin-top: 12px;
+        margin-top: 10px;
 
         .filter-title {
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 500;
-          margin-bottom: 8px;
+          margin-bottom: 6px;
           color: var(--el-text-color-regular);
+        }
+        
+        .el-tag {
+          font-size: 11px;
         }
       }
 
       .el-divider {
-        margin: 12px 0;
+        margin: 10px 0;
       }
     }
 
     .table-wrapper {
       flex: 1;
       overflow: hidden;
+      min-width: 0;
+      
+      :deep(.el-table) {
+        height: 100% !important;
+      }
     }
   }
 
   .pagination {
-    margin-top: 16px;
+    margin-top: 12px;
     display: flex;
     justify-content: flex-end;
+    flex-shrink: 0;
   }
+}
+
+.process-name {
+  color: var(--el-color-success);
+  font-size: 12px;
+}
+
+.process-none {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+
+/* 协议颜色 */
+.protocol-tcp {
+  color: #409eff;
+  font-weight: 500;
+}
+
+.protocol-udp {
+  color: #67c23a;
+  font-weight: 500;
+}
+
+.protocol-icmp,
+.protocol-icmpv6 {
+  color: #e6a23c;
+  font-weight: 500;
 }
 </style>

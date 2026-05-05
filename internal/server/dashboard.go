@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"sniffer/pkg/model"
+	"fastmonitor/pkg/model"
 )
 
 // DashboardManager 仪表盘数据管理器

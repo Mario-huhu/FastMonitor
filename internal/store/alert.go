@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"sniffer/pkg/model"
+	"fastmonitor/pkg/model"
 )
 
 // CreateAlertRule 创建告警规则
@@ -610,5 +610,100 @@ func (s *SQLiteStore) matchRule(pkt *model.Packet, session *model.Session,
 	default:
 		return false
 	}
+}
+
+// InitBuiltinAlertRules 初始化内置告警规则
+func (s *SQLiteStore) InitBuiltinAlertRules() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 银狐病毒检测规则（2025年最新威胁情报）
+	builtinRules := []struct {
+		Name           string
+		RuleType       string
+		ConditionField string
+		ConditionOp    string
+		ConditionValue string
+		AlertLevel     string
+		Description    string
+	}{
+		{
+			"银狐病毒 - 已知恶意进程检测",
+			"process",
+			"process_name",
+			"regex",
+			"(?i)(DUbit\\.exe|ggaa\\.exe|wrdlv4\\.exe|GDFInstall\\.exe|dzfp\\.exe|ChromeGPT_install\\.exe|runtime\\.exe)",
+			"critical",
+			"检测银狐病毒已知恶意进程: DUbit.exe(注入winlogon), ggaa.exe(计划任务保活), wrdlv4.exe(白利用远控), GDFInstall.exe(白+黑加载器), dzfp.exe(发票钓鱼), ChromeGPT_install.exe(下载器), runtime.exe(C2通信)",
+		},
+		{
+			"银狐病毒 - C2域名检测",
+			"dns",
+			"domain",
+			"regex",
+			"(?i)(12-18\\.qq-weixin\\.org|8004\\.twilight\\.zip|cuomicufvhehy\\.cn|olnrrzvvpypuhutf\\.cn|xuyuyohlzgtmcvr\\.cn|addr\\.ktsr\\.cc|uiekjxw\\.net|iuearx\\.net|weadesign\\.com|cinskw\\.net)",
+			"critical",
+			"检测银狐病毒已知C2域名和钓鱼域名(2025年活跃): 12-18.qq-weixin.org(C2心跳), 8004.twilight.zip(runtime.exe外联), cuomicufvhehy.cn/olnrrzvvpypuhutf.cn/xuyuyohlzgtmcvr.cn(钓鱼跳转), addr.ktsr.cc(远控备用C2), uiekjxw.net/iuearx.net(硬编码C2), weadesign.com/cinskw.net(2025-06新注册)",
+		},
+		{
+			"银狐病毒 - C2服务器IP检测",
+			"dst_ip",
+			"dst_ip",
+			"regex",
+			"^(183\\.167\\.230\\.197|154\\.94\\.232\\.120|38\\.181\\.42\\.127|192\\.238\\.129\\.9|150\\.109\\.48\\.238|43\\.139\\.21\\.174|15\\.197\\.148\\.33|3\\.33\\.130\\.190|23\\.133\\.4\\.2|206\\.238\\.196\\.114|143\\.92\\.56\\.242)$",
+			"critical",
+			"检测连接到银狐病毒C2服务器IP(2025年活跃): 183.167.230.197:18743(PNG下载), 154.94.232.120(心跳), 38.181.42.127/192.238.129.9/150.109.48.238(2025-06活跃), 43.139.21.174:7000, 15.197.148.33/3.33.130.190:7063, 23.133.4.2/206.238.196.114/143.92.56.242(2025-06新增)",
+		},
+		{
+			"银狐病毒 - 恶意PNG下载检测",
+			"http",
+			"url",
+			"regex",
+			"(?i)183\\.167\\.230\\.197:18743/(0CFA042F|5B16AF14|57BC9B7E|test)\\.Png",
+			"critical",
+			"检测银狐病毒通过PNG伪装下载恶意载荷(Payload hidden in PNG files)",
+		},
+		{
+			"银狐病毒 - 钓鱼URL检测",
+			"http",
+			"url",
+			"regex",
+			"(?i)(cuomicufvhehy\\.cn|olnrrzvvpypuhutf\\.cn|xuyuyohlzgtmcvr\\.cn)",
+			"critical",
+			"检测银狐病毒钓鱼URL(伪装百度跳转页面)",
+		},
+		{
+			"银狐病毒 - 可疑.zip域名",
+			"dns",
+			"domain",
+			"regex",
+			"(?i)\\.zip$",
+			"warning",
+			"检测.zip顶级域名(银狐常用于钓鱼,如8004.twilight.zip)",
+		},
+	}
+
+	for _, rule := range builtinRules {
+		// 检查是否已存在
+		var count int
+		err := s.db.QueryRow("SELECT COUNT(*) FROM alert_rules WHERE name = ? AND is_builtin = 1", rule.Name).Scan(&count)
+		if err != nil {
+			continue
+		}
+		if count > 0 {
+			continue
+		}
+
+		// 插入内置规则
+		_, err = s.db.Exec(`
+			INSERT INTO alert_rules (name, rule_type, condition_field, condition_operator, condition_value, alert_level, description, enabled, is_builtin, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, datetime('now'), datetime('now'))
+		`, rule.Name, rule.RuleType, rule.ConditionField, rule.ConditionOp, rule.ConditionValue, rule.AlertLevel, rule.Description)
+		if err != nil {
+			fmt.Printf("Failed to insert builtin rule %s: %v\n", rule.Name, err)
+		}
+	}
+
+	return nil
 }
 

@@ -3,6 +3,7 @@ package parser
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,7 +12,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
-	"sniffer/pkg/model"
+	"fastmonitor/pkg/model"
 )
 
 var (
@@ -279,7 +280,9 @@ func ParseHTTP(pkt *model.Packet) (*model.Session, error) {
 					session.PostData = bodyStr
 				}
 			} else {
-				session.PostData = fmt.Sprintf("[二进制数据, %d 字节]", contentLength)
+				// 二进制数据使用 Base64 编码，添加特殊前缀标识
+				encoded := base64.StdEncoding.EncodeToString(bodyBuf[:n])
+				session.PostData = fmt.Sprintf("[BASE64:%d]%s", n, encoded)
 			}
 		}
 	}

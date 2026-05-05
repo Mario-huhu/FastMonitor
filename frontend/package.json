@@ -1,5 +1,5 @@
 {
-  "name": "sniffer-frontend",
+  "name": "fastmonitor-frontend",
   "version": "1.0.0",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
     "echarts": "^5.6.0",
+    "echarts-gl": "^2.0.9",
     "element-plus": "^2.5.0",
     "pinia": "^2.1.7",
     "vue": "^3.4.0",

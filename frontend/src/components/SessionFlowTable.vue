@@ -9,7 +9,6 @@
 
     <el-table
       :data="data"
-      height="calc(100vh - 400px)"
       stripe
       style="width: 100%"
       :expand-row-keys="expandedRows"
@@ -37,7 +36,7 @@
                 <el-tag>{{ row.protocol }}</el-tag>
               </el-descriptions-item>
               <el-descriptions-item label="数据包总数">
-                <el-statistic :value="row.packet_count" :precision="0" />
+                {{ row.packet_count?.toLocaleString() }}
               </el-descriptions-item>
               
               <el-descriptions-item label="总流量">
@@ -60,57 +59,51 @@
               <el-descriptions-item label="平均速率">
                 {{ formatBytes(row.bytes_count / row.duration) }}/s
               </el-descriptions-item>
+              
+              <el-descriptions-item label="进程名称">{{ row.process_name || '未关联' }}</el-descriptions-item>
+              <el-descriptions-item label="进程PID">{{ row.process_pid || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="进程路径" :span="2">{{ row.process_exe || '-' }}</el-descriptions-item>
             </el-descriptions>
           </div>
         </template>
       </el-table-column>
       
-      <el-table-column prop="src_ip" label="源IP" width="150" show-overflow-tooltip sortable="custom" />
-      <el-table-column prop="dst_ip" label="目标IP" width="150" show-overflow-tooltip sortable="custom" />
-      <el-table-column prop="src_port" label="源端口" width="80" sortable="custom" />
-      <el-table-column prop="dst_port" label="目标端口" width="80" sortable="custom" />
-      <el-table-column prop="protocol" label="协议" width="80" sortable="custom">
+      <el-table-column prop="src_ip" label="源IP" width="115" show-overflow-tooltip sortable="custom" />
+      <el-table-column prop="dst_ip" label="目标IP" width="115" show-overflow-tooltip sortable="custom" />
+      <el-table-column prop="src_port" label="源端口" width="65" sortable="custom" />
+      <el-table-column prop="dst_port" label="目标端口" width="75" sortable="custom" />
+      <el-table-column prop="protocol" label="协议" width="60" sortable="custom">
         <template #default="{ row }">
-          <el-tag size="small">{{ row.protocol }}</el-tag>
+          <span :class="'protocol-' + (row.protocol || '').toLowerCase()">{{ row.protocol }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="session_type" label="类型" width="80" sortable="custom">
+      <el-table-column prop="session_type" label="类型" width="55" sortable="custom">
         <template #default="{ row }">
-          <el-tag :type="getTypeColor(row.session_type)" size="small">
-            {{ row.session_type }}
-          </el-tag>
+          <span :class="'type-' + (row.session_type || '').toLowerCase()">{{ row.session_type }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="process_name" label="进程" width="150" sortable="custom">
+      <el-table-column prop="process_name" label="进程" min-width="90" show-overflow-tooltip sortable="custom">
         <template #default="{ row }">
-          <el-tooltip v-if="row.process_name" :content="`PID: ${row.process_pid} | 路径: ${row.process_exe || '未知'}`" placement="top">
-            <el-tag type="success" size="small">
-              <el-icon style="margin-right: 4px;"><Connection /></el-icon>
-              {{ row.process_name }}
-            </el-tag>
-          </el-tooltip>
-          <el-tag v-else type="info" size="small">
-            <el-icon style="margin-right: 4px;"><QuestionFilled /></el-icon>
-            未关联
-          </el-tag>
+          <span v-if="row.process_name" class="process-name">{{ row.process_name }}</span>
+          <span v-else class="process-none">-</span>
         </template>
       </el-table-column>
-      <el-table-column prop="packet_count" label="包数量" width="100" sortable="custom">
+      <el-table-column prop="packet_count" label="包数" width="65" sortable="custom">
         <template #default="{ row }">
           {{ row.packet_count?.toLocaleString() }}
         </template>
       </el-table-column>
-      <el-table-column prop="bytes_count" label="流量" width="100" sortable="custom">
+      <el-table-column prop="bytes_count" label="流量" width="75" sortable="custom">
         <template #default="{ row }">
-          {{ formatBytes(row.bytes_count) }}
+          <span class="bytes-value">{{ formatBytes(row.bytes_count) }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="duration" label="时长" width="100" sortable="custom">
+      <el-table-column prop="duration" label="时长" width="70" sortable="custom">
         <template #default="{ row }">
           {{ formatDuration(row.duration) }}
         </template>
       </el-table-column>
-      <el-table-column prop="first_seen" label="首次" width="150" sortable="custom">
+      <el-table-column prop="first_seen" label="首次" width="85" sortable="custom">
         <template #default="{ row }">
           {{ formatShortTime(row.first_seen) }}
         </template>
@@ -259,34 +252,107 @@ function formatDuration(seconds: number): string {
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 
   .table-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
+    flex-shrink: 0;
 
     .session-count {
-      font-size: 14px;
+      font-size: 13px;
       color: var(--el-text-color-secondary);
     }
   }
 
+  :deep(.el-table) {
+    flex: 1;
+    
+    .el-table__cell {
+      padding: 6px 0;
+    }
+    
+    .cell {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+
   .flow-detail {
-    padding: 20px;
+    padding: 16px;
     background: var(--el-fill-color-light);
-    border-radius: 4px;
+    border-radius: 6px;
 
     :deep(.el-descriptions__label) {
-      width: 120px;
+      width: 100px;
+      font-size: 12px;
+    }
+    
+    :deep(.el-descriptions__content) {
+      font-size: 12px;
+    }
+    
+    :deep(.el-statistic__number) {
+      font-size: 14px;
     }
   }
 
   .pagination {
-    margin-top: 16px;
+    margin-top: 12px;
     display: flex;
     justify-content: flex-end;
+    flex-shrink: 0;
   }
+}
+
+.process-name {
+  color: var(--el-color-success);
+  font-size: 12px;
+}
+
+.process-none {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+
+/* 协议颜色 */
+.protocol-tcp {
+  color: #409eff;
+  font-weight: 500;
+}
+
+.protocol-udp {
+  color: #67c23a;
+  font-weight: 500;
+}
+
+.protocol-icmp {
+  color: #e6a23c;
+  font-weight: 500;
+}
+
+/* 类型颜色 */
+.type-dns {
+  color: #67c23a;
+  font-weight: 500;
+}
+
+.type-http {
+  color: #409eff;
+  font-weight: 500;
+}
+
+.type-icmp {
+  color: #e6a23c;
+  font-weight: 500;
+}
+
+.bytes-value {
+  color: #67c23a;
+  font-weight: 500;
 }
 </style>
 

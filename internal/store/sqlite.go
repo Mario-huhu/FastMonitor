@@ -8,7 +8,7 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
-	"sniffer/pkg/model"
+	"fastmonitor/pkg/model"
 )
 
 // SQLiteStore stores parsed sessions in SQLite database
@@ -171,12 +171,14 @@ func (s *SQLiteStore) initSchema() error {
 		condition_value TEXT NOT NULL,
 		alert_level TEXT DEFAULT 'warning',
 		description TEXT,
+		is_builtin INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_alert_rules_enabled ON alert_rules(enabled);
 	CREATE INDEX IF NOT EXISTS idx_alert_rules_type ON alert_rules(rule_type);
+	CREATE INDEX IF NOT EXISTS idx_alert_rules_builtin ON alert_rules(is_builtin);
 
 	-- 告警记录表
 	CREATE TABLE IF NOT EXISTS alert_logs (
@@ -205,7 +207,22 @@ func (s *SQLiteStore) initSchema() error {
 	`
 
 	_, err := s.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// 初始化GeoIP缓存表
+	if err := s.InitGeoIPSchema(); err != nil {
+		return err
+	}
+
+	// 初始化内置告警规则（首次启动时）
+	if err := s.InitBuiltinAlertRules(); err != nil {
+		fmt.Printf("Warning: failed to init builtin alert rules: %v\n", err)
+		// 不要因为内置规则初始化失败而中断启动
+	}
+
+	return nil
 }
 
 // prepareStatements prepares INSERT statements for each table

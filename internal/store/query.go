@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"sniffer/pkg/model"
+	"fastmonitor/pkg/model"
 )
 
 // QuerySessions 查询会话（支持分页、排序、搜索）

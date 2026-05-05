@@ -52,7 +52,6 @@
 
     <el-table
       :data="tableData"
-      height="calc(100vh - 400px)"
       stripe
       style="width: 100%"
       :expand-row-keys="expandedRows"
@@ -126,7 +125,7 @@
         </template>
       </el-table-column>
       
-      <el-table-column prop="alert_level" label="级别" width="80" sortable="custom">
+      <el-table-column prop="alert_level" label="级别" width="70" sortable="custom">
         <template #default="{ row }">
           <el-tag :type="getLevelType(row.alert_level)" effect="dark" size="small">
             {{ getLevelText(row.alert_level) }}
@@ -134,7 +133,7 @@
         </template>
       </el-table-column>
       
-      <el-table-column prop="rule_type" label="类型" width="100" sortable="custom">
+      <el-table-column prop="rule_type" label="类型" width="80" sortable="custom">
         <template #default="{ row }">
           <el-tag :type="getRuleTypeColor(row.rule_type)" size="small">
             {{ getRuleTypeText(row.rule_type) }}
@@ -142,9 +141,9 @@
         </template>
       </el-table-column>
       
-      <el-table-column prop="rule_name" label="规则名称" width="180" show-overflow-tooltip sortable="custom" />
+      <el-table-column prop="rule_name" label="规则名称" width="140" show-overflow-tooltip sortable="custom" />
       
-      <el-table-column label="触发对象" width="200" show-overflow-tooltip>
+      <el-table-column label="触发对象" min-width="160" show-overflow-tooltip>
         <template #default="{ row }">
           <span v-if="row.domain">{{ row.domain }}</span>
           <span v-else-if="row.dst_ip">{{ row.dst_ip }}</span>
@@ -152,14 +151,14 @@
         </template>
       </el-table-column>
       
-      <el-table-column prop="protocol" label="协议" width="80">
+      <el-table-column prop="protocol" label="协议" width="70">
         <template #default="{ row }">
           <el-tag v-if="row.protocol" size="small">{{ row.protocol }}</el-tag>
           <span v-else>-</span>
         </template>
         </el-table-column>
         
-        <el-table-column prop="trigger_count" label="触发次数" width="100" sortable="custom" align="center">
+        <el-table-column prop="trigger_count" label="次数" width="70" sortable="custom" align="center">
           <template #default="{ row }">
             <el-tag :type="row.trigger_count > 10 ? 'danger' : (row.trigger_count > 5 ? 'warning' : 'info')" size="small" effect="dark">
               {{ row.trigger_count }}
@@ -167,26 +166,26 @@
           </template>
         </el-table-column>
         
-        <el-table-column prop="triggered_at" label="首次触发" width="180" sortable="custom">
+        <el-table-column prop="triggered_at" label="首次触发" width="90" sortable="custom">
           <template #default="{ row }">
             {{ formatShortTime(row.triggered_at) }}
           </template>
         </el-table-column>
         
-        <el-table-column prop="last_triggered_at" label="最后触发" width="180" sortable="custom">
+        <el-table-column prop="last_triggered_at" label="最后触发" width="90" sortable="custom">
           <template #default="{ row }">
             {{ formatShortTime(row.last_triggered_at) }}
           </template>
         </el-table-column>
       
-      <el-table-column label="状态" width="100">
+      <el-table-column label="状态" width="70">
         <template #default="{ row }">
           <el-tag v-if="row.acknowledged" type="success" size="small">已确认</el-tag>
           <el-tag v-else type="warning" size="small">未确认</el-tag>
         </template>
       </el-table-column>
       
-      <el-table-column label="操作" width="150" fixed="right">
+      <el-table-column label="操作" width="100" fixed="right">
         <template #default="{ row }">
           <el-button 
             v-if="!row.acknowledged" 
@@ -469,33 +468,42 @@ function getRuleTypeColor(type: string) {
 
 <style scoped>
 .alert-logs-container {
-  padding: 20px;
+  padding: 12px;
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .table-header {
   display: flex;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .alert-count {
   margin-left: auto;
-  font-size: 14px;
+  font-size: 13px;
   color: #909399;
 }
 
 .alert-detail {
-  padding: 20px;
+  padding: 16px;
   background: var(--el-fill-color-light);
 }
 
 .pagination {
-  margin-top: 16px;
+  margin-top: 12px;
   display: flex;
   justify-content: center;
+  flex-shrink: 0;
+}
+
+:deep(.el-table) {
+  flex: 1;
 }
 
 :deep(.el-table__expanded-cell) {
@@ -504,5 +512,14 @@ function getRuleTypeColor(type: string) {
 
 :deep(.el-descriptions__label) {
   font-weight: 600;
+  font-size: 12px;
+}
+
+:deep(.el-descriptions__content) {
+  font-size: 12px;
+}
+
+:deep(.el-select) {
+  margin-left: 0 !important;
 }
 </style>

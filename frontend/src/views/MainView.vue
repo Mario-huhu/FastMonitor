@@ -3,7 +3,7 @@
     <!-- 合并的顶部标题栏和控制面板 -->
     <div class="header-merged">
       <div class="header-left">
-        <h1><el-icon><Monitor /></el-icon> 网络抓包分析器</h1>
+        <h1><el-icon><Monitor /></el-icon>FastMonitor </h1>
       </div>
       
       <!-- 控制面板居中 -->
@@ -14,6 +14,7 @@
           :disabled="isCapturing"
           style="width: 300px"
           size="small"
+          popper-class="network-interface-select"
         >
           <el-option
             v-for="iface in interfaces"
@@ -21,10 +22,10 @@
             :label="formatInterfaceLabel(iface)"
             :value="iface.name"
           >
-            <div style="display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; flex-direction: column; gap: 4px; padding: 8px 0;">
               <span style="font-weight: 600; font-size: 13px;">{{ iface.description || iface.name }}</span>
               <span v-if="iface.addresses && iface.addresses.length > 0" style="font-size: 11px; color: var(--el-text-color-secondary);">
-                {{ iface.addresses.slice(0, 1).join(', ') }}
+                {{ iface.addresses.slice(0, 2).join(', ') }}
               </span>
             </div>
           </el-option>
@@ -87,6 +88,18 @@
       </div>
 
       <div class="header-right">
+        <!-- GitHub链接 -->
+        <a 
+          href="https://github.com/vam876/FastMonitor" 
+          target="_blank" 
+          class="github-link"
+          title="访问项目地址"
+        >
+          <svg viewBox="0 0 16 16" width="24" height="24" fill="currentColor">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+          </svg>
+        </a>
+        
         <el-switch
           v-model="isDark"
           inline-prompt
@@ -94,7 +107,7 @@
           inactive-text="浅色"
           @change="toggleTheme"
           size="small"
-          style="margin-right: 15px"
+          style="margin-left: 15px; margin-right: 15px"
         />
         <el-tag :type="isCapturing ? 'success' : 'info'" size="small">
           {{ statusText }}
@@ -191,6 +204,12 @@
             </el-tab-pane>
           </el-tabs>
         </el-tab-pane>
+        <el-tab-pane label="2D地图" name="map2d">
+          <ThreatMapView ref="map2dRef" />
+        </el-tab-pane>
+        <el-tab-pane label="3D地球" name="map3d">
+          <Earth3DView ref="map3dRef" />
+        </el-tab-pane>
         <el-tab-pane label="设置" name="settings">
           <SettingsPanel @config-updated="loadConfig" />
         </el-tab-pane>
@@ -209,6 +228,8 @@ import SessionFlowTable from '../components/SessionFlowTable.vue'
 import SettingsPanel from '../components/SettingsPanel.vue'
 import DashboardView from './DashboardView.vue'
 import ProcessView from './ProcessView.vue'
+import ThreatMapView from './ThreatMapView.vue'
+import Earth3DView from './Earth3DView.vue'
 import AlertLogs from '../components/AlertLogs.vue'
 import AlertRules from '../components/AlertRules.vue'
 import { useThemeStore } from '../stores/theme'
@@ -228,6 +249,8 @@ const loading = ref(false)
 // 告警组件的引用
 const alertLogsRef = ref()
 const alertRulesRef = ref()
+const map2dRef = ref()
+const map3dRef = ref()
 
 const metrics = ref({
   packets_per_sec: 0,
@@ -339,8 +362,30 @@ async function startCapture() {
     isPaused.value = false
     ElMessage.success('抓包已开始: ' + selectedInterface.value)
     startDataRefresh()
-  } catch (error) {
-    ElMessage.error('启动抓包失败: ' + error)
+  } catch (error: any) {
+    const errorMsg = String(error)
+    // 检测macOS权限错误
+    if (errorMsg.includes('Permission denied') || errorMsg.includes('BPF') || errorMsg.includes("don't have permission")) {
+      ElMessageBox.alert(
+        `<div style="line-height: 1.8;">
+          <p><strong>抓包需要管理员权限</strong></p>
+          <p>macOS 系统需要管理员权限才能进行网络抓包。</p>
+          <p style="margin-top: 10px;"><strong>解决方法：</strong></p>
+          <p>在终端中使用 sudo 或管理员权限运行应用</p>
+          <p style="color: #909399; font-size: 12px; margin-top: 10px;">
+            或者将当前用户添加到 access_bpf 组（需要重启）
+          </p>
+        </div>`,
+        '权限不足',
+        {
+          dangerouslyUseHTMLString: true,
+          confirmButtonText: '我知道了',
+          type: 'warning'
+        }
+      )
+    } else {
+      ElMessage.error('启动抓包失败: ' + errorMsg)
+    }
   }
 }
 
@@ -468,6 +513,18 @@ function loadCurrentTab() {
       break
     case 'sessions':
       loadSessionFlows()
+      break
+    case 'map2d':
+      // 刷新2D地图数据
+      if (map2dRef.value && map2dRef.value.refreshData) {
+        map2dRef.value.refreshData()
+      }
+      break
+    case 'map3d':
+      // 刷新3D地球数据
+      if (map3dRef.value && map3dRef.value.refreshData) {
+        map3dRef.value.refreshData()
+      }
       break
   }
 }
@@ -724,9 +781,13 @@ watch(activeTab, (newTab) => {
   border-radius: 8px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
   margin-bottom: 16px;
+  /* macOS: 为红绿灯按钮留出空间 */
+  padding-left: 80px;
+  -webkit-app-region: drag; /* 允许拖拽 */
   
   .header-left {
     flex: 0 0 auto;
+    -webkit-app-region: no-drag; /* 内容不可拖拽 */
     
     h1 {
       font-size: 20px;
@@ -745,6 +806,7 @@ watch(activeTab, (newTab) => {
     align-items: center;
     gap: 8px;
     padding: 0 20px;
+    -webkit-app-region: no-drag; /* 控件不可拖拽 */
     
     .metrics-compact {
       display: flex;
@@ -757,6 +819,23 @@ watch(activeTab, (newTab) => {
     flex: 0 0 auto;
     display: flex;
     align-items: center;
+    -webkit-app-region: no-drag; /* 控件不可拖拽 */
+    
+    .github-link {
+      display: flex;
+      align-items: center;
+      color: var(--el-text-color-primary);
+      transition: all 0.3s ease;
+      
+      &:hover {
+        color: var(--el-color-primary);
+        transform: scale(1.1);
+      }
+      
+      svg {
+        display: block;
+      }
+    }
   }
 }
 
@@ -792,9 +871,18 @@ watch(activeTab, (newTab) => {
 
 <style>
 /* 网卡选择下拉框自定义样式 */
+.network-interface-select.el-select-dropdown {
+  max-height: 400px !important;
+}
+
 .network-interface-select .el-select-dropdown__item {
   height: auto !important;
+  min-height: 60px !important;
   line-height: normal !important;
-  padding: 0 !important;
+  padding: 4px 20px !important;
+}
+
+.network-interface-select .el-select-dropdown__item.selected {
+  font-weight: normal !important;
 }
 </style>

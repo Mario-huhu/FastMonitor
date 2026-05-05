@@ -14,7 +14,10 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    emptyOutDir: true
-  }
+    emptyOutDir: true,
+    // public 目录中的文件会自动复制到 dist 根目录
+    // maps 文件夹会被复制到 dist/maps/
+  },
+  publicDir: 'public'
 })
 

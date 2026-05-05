@@ -1,0 +1,79 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build output
+build/bin/
+build/release/
+dist/
+
+# Test binary
+*.test
+
+# Go coverage
+*.out
+
+# Go workspace
+go.work
+
+# Data files
+data/
+*.db
+*.pcap
+*.pcap.gz
+*.mmdb
+*.log
+*.zip
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.DS_Store
+frontend/package.json.md5
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Wails auto-generated
+frontend/wailsjs/
+
+# Old sub-project (embedded git repo)
+FastMonitor/
+
+# Temp/fix documentation
+ALERT_RULES_FIX.md
+DEBUG_GEOIP_WINDOWS.md
+FINAL_OPTIMIZATIONS.md
+FINAL_SUMMARY.md
+GEOIP_FIX.md
+GEOIP_FIX_FINAL.md
+MANUAL_RUN.md
+MAP_ORIGIN_UI_GUIDE.md
+PERFORMANCE_OPTIMIZATION.md
+RUN_APP.md
+WINDOWS_GEOIP_SOLUTION.md
+
+# Backup files
+*_副本*
+
+# Fix scripts (one-time use)
+fix_geoip_files.sh
+fix_geoip_windows.bat
+test_geoip.sh
+
+# Windows build scripts (not needed in repo)
+build_windows.bat
+build_all.sh
+build.bat
+versioninfo.json

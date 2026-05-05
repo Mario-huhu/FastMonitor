@@ -4,24 +4,28 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
-	"sniffer/internal/capture"
-	"sniffer/internal/config"
-	"sniffer/internal/netio"
-	"sniffer/internal/scheduler"
-	"sniffer/internal/store"
-	"sniffer/pkg/model"
+	"fastmonitor/internal/capture"
+	"fastmonitor/internal/config"
+	"fastmonitor/internal/geoip"
+	"fastmonitor/internal/netio"
+	"fastmonitor/internal/scheduler"
+	"fastmonitor/internal/store"
+	"fastmonitor/pkg/model"
 )
 
 // App is the Wails application structure
 type App struct {
-	ctx       context.Context
-	cfg       *config.Config
-	capture   *capture.Capture
-	scheduler *scheduler.Scheduler
-	store     store.Store
-	dashboard *DashboardManager
+	ctx          context.Context
+	cfg          *config.Config
+	capture      *capture.Capture
+	scheduler    *scheduler.Scheduler
+	store        store.Store
+	dashboard    *DashboardManager
+	geoipService *geoip.GeoIPService // GeoIP服务（单例）
 }
 
 // NewApp creates a new App application
@@ -39,6 +43,39 @@ func NewApp(cfg *config.Config, cap *capture.Capture, sched *scheduler.Scheduler
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 	fmt.Println("Sniffer application started")
+	
+	// 初始化 GeoIP 服务（单例）
+	a.initGeoIPService()
+}
+
+// initGeoIPService 初始化GeoIP服务
+func (a *App) initGeoIPService() {
+	// 尝试多个可能的路径
+	geoipDirs := []string{
+		"data/geoip",
+		"./data/geoip",
+	}
+	
+	// 添加可执行文件相对路径
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		geoipDirs = append(geoipDirs,
+			filepath.Join(exeDir, "data", "geoip"),
+			filepath.Join(exeDir, "..", "data", "geoip"),
+		)
+	}
+	
+	var err error
+	for _, geoipDir := range geoipDirs {
+		a.geoipService, err = geoip.NewGeoIPService(geoipDir)
+		if err == nil {
+			fmt.Printf("[App] ✓ GeoIP服务初始化成功\n")
+			return
+		}
+	}
+	
+	fmt.Printf("[App] ⚠️  GeoIP服务初始化失败: %v\n", err)
+	fmt.Println("[App] 地图功能将不可用")
 }
 
 // shutdown is called when the app is closing
@@ -48,6 +85,12 @@ func (a *App) Shutdown(ctx context.Context) {
 	// Stop capture if running
 	if a.capture.IsRunning() {
 		a.capture.Stop()
+	}
+	
+	// Close GeoIP service
+	if a.geoipService != nil {
+		a.geoipService.Close()
+		fmt.Println("GeoIP service closed")
 	}
 
 	// Close store
@@ -338,3 +381,81 @@ func (a *App) QuerySessionFlows(opts model.SessionFlowQuery) (*model.SessionFlow
 	return sqliteStore.QuerySessionFlows(opts)
 }
 
+
+// ========== 进程统计相关 API ==========
+
+// ProcessStatsResult 进程统计结果
+type ProcessStatsResult struct {
+	Data  []capture.ProcessStatsWithPackets `json:"data"`
+	Total int                               `json:"total"`
+}
+
+// GetProcessStats 获取进程统计（分页）
+func (a *App) GetProcessStats(page, pageSize int) (*ProcessStatsResult, error) {
+	offset := (page - 1) * pageSize
+	stats, total, err := a.capture.GetProcessStats(offset, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	
+	// 转换为带数据包缓存的结果
+	data := make([]capture.ProcessStatsWithPackets, len(stats))
+	for i, stat := range stats {
+		data[i] = capture.ProcessStatsWithPackets{
+			ProcessStats: stat,
+			RecentPackets: a.capture.GetProcessPackets(stat.Exe),
+		}
+	}
+	
+	return &ProcessStatsResult{
+		Data:  data,
+		Total: total,
+	}, nil
+}
+
+// GetTopProcessesByTraffic 获取流量排名前N的进程
+func (a *App) GetTopProcessesByTraffic(limit int) ([]capture.ProcessStatsWithPackets, error) {
+	stats, err := a.capture.GetTopProcessesByTraffic(limit)
+	if err != nil {
+		return nil, err
+	}
+	
+	// 转换为带数据包缓存的结果
+	result := make([]capture.ProcessStatsWithPackets, len(stats))
+	for i, stat := range stats {
+		result[i] = capture.ProcessStatsWithPackets{
+			ProcessStats: stat,
+			RecentPackets: a.capture.GetProcessPackets(stat.Exe),
+		}
+	}
+	
+	return result, nil
+}
+
+// ClearProcessStats 清空进程统计
+func (a *App) ClearProcessStats() error {
+	return a.capture.ClearProcessStats()
+}
+
+// GetProcessPackets 获取指定进程的缓存数据包
+func (a *App) GetProcessPackets(exe string) []capture.ProcessPacketInfo {
+	packets := a.capture.GetProcessPackets(exe)
+	if packets == nil {
+		return nil
+	}
+	
+	result := make([]capture.ProcessPacketInfo, len(packets))
+	for i, pkt := range packets {
+		result[i] = capture.ProcessPacketInfo{
+			Timestamp: pkt.Timestamp,
+			SrcIP:     pkt.SrcIP,
+			DstIP:     pkt.DstIP,
+			SrcPort:   pkt.SrcPort,
+			DstPort:   pkt.DstPort,
+			Protocol:  pkt.Protocol,
+			Size:      pkt.Size,
+			IsSent:    pkt.IsSent,
+		}
+	}
+	return result
+}

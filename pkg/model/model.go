@@ -185,13 +185,14 @@ type TrafficPoint struct {
 type AlertRule struct {
 	ID                int64     `json:"id"`
 	Name              string    `json:"name"`
-	RuleType          string    `json:"rule_type"`          // dst_ip, dns, http, icmp, etc.
+	RuleType          string    `json:"rule_type"`          // dst_ip, dns, http, icmp, process, etc.
 	Enabled           bool      `json:"enabled"`
 	ConditionField    string    `json:"condition_field"`    // 条件字段
 	ConditionOperator string    `json:"condition_operator"` // equals, contains, regex
 	ConditionValue    string    `json:"condition_value"`    // 条件值
 	AlertLevel        string    `json:"alert_level"`        // info, warning, error, critical
 	Description       string    `json:"description"`
+	RequireNetwork    bool      `json:"require_network"`    // 进程告警是否需要联网 (仅对process类型有效)
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }

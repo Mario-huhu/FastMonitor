@@ -13,7 +13,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
-	"sniffer/pkg/model"
+	"fastmonitor/pkg/model"
 )
 
 // PcapFileStore stores raw packets in rotating PCAP files

@@ -1,6 +1,6 @@
 {
-  "name": "sniffer",
-  "outputfilename": "sniffer",
+  "name": "fastmonitor",
+  "outputfilename": "fastmonitor",
   "assetdir": "frontend/dist",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
@@ -9,8 +9,8 @@
   "frontend:dev:serverUrl": "auto",
   "debounceMS": 500,
   "author": {
-    "name": "Sniffer Team",
-    "email": "team@sniffer.dev"
+    "name": "FastMonitor Team",
+    "email": "team@fastmonitor.dev"
   }
 }
 

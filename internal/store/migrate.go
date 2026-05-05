@@ -25,6 +25,7 @@ func (s *SQLiteStore) MigrateSchema() error {
 		{"icmp_sessions", "process_exe", "TEXT"},
 		{"alert_logs", "trigger_count", "INTEGER DEFAULT 1"},
 		{"alert_logs", "last_triggered_at", "DATETIME"},
+		{"alert_rules", "is_builtin", "INTEGER DEFAULT 0"},
 	}
 
 	for _, m := range migrations {
@@ -44,6 +45,18 @@ func (s *SQLiteStore) MigrateSchema() error {
 			if err != nil {
 				return fmt.Errorf("add %s.%s column: %w", m.table, m.column, err)
 			}
+		}
+	}
+
+	// 创建索引（如果不存在）
+	indexes := []string{
+		"CREATE INDEX IF NOT EXISTS idx_alert_rules_builtin ON alert_rules(is_builtin)",
+	}
+	
+	for _, idx := range indexes {
+		_, err := s.db.Exec(idx)
+		if err != nil {
+			fmt.Printf("Warning: failed to create index: %v\n", err)
 		}
 	}
 

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"sniffer/internal/config"
-	"sniffer/internal/store"
+	"fastmonitor/internal/config"
+	"fastmonitor/internal/store"
 )
 
 // Scheduler manages periodic maintenance tasks

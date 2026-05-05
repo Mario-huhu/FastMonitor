@@ -3,6 +3,9 @@ package process
 import (
 	"fmt"
 	"net"
+	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,11 +49,18 @@ type ProcessMapper struct {
 	// 方案4: 端口所有者历史记录 (用于处理短连接)
 	portHistory map[string]*PortOwnerHistory
 	
+	// macOS专用: lsof缓存 (作为备用方案)
+	lsofCache     map[string]int32 // "protocol:port" -> PID
+	lsofCacheTime time.Time
+	
 	// 配置
 	updateInterval time.Duration
 	historyTTL     time.Duration
 	stopChan       chan struct{}
 }
+
+// 确保 ProcessMapper 实现 IProcessMapper 接口
+var _ IProcessMapper = (*ProcessMapper)(nil)
 
 // PortOwnerHistory 端口所有者历史记录
 type PortOwnerHistory struct {
@@ -63,17 +73,23 @@ type PortOwnerHistory struct {
 // NewProcessMapper 创建进程映射管理器
 func NewProcessMapper() *ProcessMapper {
 	pm := &ProcessMapper{
-		connectionMap: make(map[ConnectionKey]int32),
-		portMap:       make(map[string][]int32),
-		processCache:  make(map[int32]*ProcessInfo),
-		portHistory:   make(map[string]*PortOwnerHistory),
+		connectionMap:  make(map[ConnectionKey]int32),
+		portMap:        make(map[string][]int32),
+		processCache:   make(map[int32]*ProcessInfo),
+		portHistory:    make(map[string]*PortOwnerHistory),
+		lsofCache:      make(map[string]int32),
 		updateInterval: 2 * time.Second,  // 2秒更新一次，确保及时性
 		historyTTL:     30 * time.Second, // 保留30秒历史
-		stopChan:      make(chan struct{}),
+		stopChan:       make(chan struct{}),
 	}
 	
 	// 立即更新一次
 	pm.Update()
+	
+	// macOS: 初始化lsof缓存
+	if runtime.GOOS == "darwin" {
+		pm.updateLsofCache()
+	}
 	
 	// 启动自动更新
 	go pm.autoUpdate()
@@ -94,6 +110,10 @@ func (pm *ProcessMapper) autoUpdate() {
 		case <-ticker.C:
 			if err := pm.Update(); err != nil {
 				fmt.Printf("[ProcessMapper] Update error: %v\n", err)
+			}
+			// macOS: 定期更新lsof缓存
+			if runtime.GOOS == "darwin" {
+				pm.updateLsofCache()
 			}
 		case <-pm.stopChan:
 			return
@@ -218,6 +238,20 @@ func (pm *ProcessMapper) GetPIDByPort(protocol string, port uint32) (int32, *Pro
 		pid := pids[0]
 		info := pm.processCache[pid]
 		return pid, info, true
+	}
+	
+	// macOS: 从lsof缓存查找
+	if runtime.GOOS == "darwin" {
+		if pid, ok := pm.lsofCache[portKey]; ok && pid > 0 {
+			info := pm.processCache[pid]
+			if info == nil {
+				// 尝试获取进程信息
+				if procInfo, err := GetProcessByPID(pid); err == nil {
+					info = procInfo
+				}
+			}
+			return pid, info, true
+		}
 	}
 	
 	// 从历史记录查找 (处理短连接)
@@ -353,5 +387,155 @@ func getProtocolName(family, connType uint32) string {
 	default:
 		return "UNKNOWN"
 	}
+}
+
+// ========== macOS 专用优化 ==========
+
+// updateLsofCache 使用lsof更新端口到进程的映射 (macOS专用)
+func (pm *ProcessMapper) updateLsofCache() {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	
+	// 使用lsof获取网络连接信息
+	// -i: 网络连接, -n: 不解析主机名, -P: 不解析端口名
+	cmd := exec.Command("lsof", "-i", "-n", "-P")
+	output, err := cmd.Output()
+	if err != nil {
+		// lsof可能需要root权限，静默失败
+		return
+	}
+	
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	
+	// 清空旧缓存
+	pm.lsofCache = make(map[string]int32)
+	pm.lsofCacheTime = time.Now()
+	
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines[1:] { // 跳过标题行
+		fields := strings.Fields(line)
+		if len(fields) < 9 {
+			continue
+		}
+		
+		// 解析PID
+		pid, err := strconv.ParseInt(fields[1], 10, 32)
+		if err != nil {
+			continue
+		}
+		
+		// 解析协议和端口
+		// 格式: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+		// NAME格式: *:port 或 host:port->remote:port
+		name := fields[len(fields)-1]
+		node := fields[len(fields)-2] // TCP 或 UDP
+		
+		protocol := strings.ToUpper(node)
+		if protocol != "TCP" && protocol != "UDP" {
+			continue
+		}
+		
+		// 解析本地端口
+		var localPort string
+		if strings.Contains(name, "->") {
+			// 已建立连接: local:port->remote:port
+			parts := strings.Split(name, "->")
+			if len(parts) >= 1 {
+				localParts := strings.Split(parts[0], ":")
+				if len(localParts) >= 1 {
+					localPort = localParts[len(localParts)-1]
+				}
+			}
+		} else if strings.Contains(name, ":") {
+			// 监听: *:port 或 host:port
+			parts := strings.Split(name, ":")
+			if len(parts) >= 1 {
+				localPort = parts[len(parts)-1]
+			}
+		}
+		
+		if localPort == "" || localPort == "*" {
+			continue
+		}
+		
+		// 移除可能的状态后缀 (LISTEN)
+		localPort = strings.Split(localPort, " ")[0]
+		
+		portKey := fmt.Sprintf("%s:%s", protocol, localPort)
+		pm.lsofCache[portKey] = int32(pid)
+		
+		// 同时缓存进程信息
+		if _, exists := pm.processCache[int32(pid)]; !exists {
+			if info, err := GetProcessByPID(int32(pid)); err == nil {
+				pm.processCache[int32(pid)] = info
+			}
+		}
+	}
+}
+
+// GetPIDByLsof 使用lsof实时查询端口对应的进程 (macOS专用，用于缓存未命中时)
+func (pm *ProcessMapper) GetPIDByLsof(protocol string, port uint32) (int32, *ProcessInfo, bool) {
+	if runtime.GOOS != "darwin" {
+		return 0, nil, false
+	}
+	
+	// 使用lsof查询特定端口
+	portStr := fmt.Sprintf(":%d", port)
+	cmd := exec.Command("lsof", "-i", fmt.Sprintf("%s%s", strings.ToLower(protocol), portStr), "-n", "-P", "-t")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, nil, false
+	}
+	
+	// 解析PID
+	pidStr := strings.TrimSpace(string(output))
+	if pidStr == "" {
+		return 0, nil, false
+	}
+	
+	// 可能有多个PID，取第一个
+	pids := strings.Split(pidStr, "\n")
+	pid, err := strconv.ParseInt(pids[0], 10, 32)
+	if err != nil {
+		return 0, nil, false
+	}
+	
+	// 获取进程信息
+	info, _ := GetProcessByPID(int32(pid))
+	
+	return int32(pid), info, true
+}
+
+// GetMacOSNetworkStats 获取macOS网络统计信息
+func GetMacOSNetworkStats() (map[string]interface{}, error) {
+	if runtime.GOOS != "darwin" {
+		return nil, fmt.Errorf("not macOS")
+	}
+	
+	stats := make(map[string]interface{})
+	
+	// 使用netstat获取统计
+	cmd := exec.Command("netstat", "-s")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	
+	stats["raw"] = string(output)
+	
+	// 解析关键指标
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "packets received") {
+			stats["packets_received"] = line
+		} else if strings.Contains(line, "packets sent") {
+			stats["packets_sent"] = line
+		}
+	}
+	
+	return stats, nil
 }
 
