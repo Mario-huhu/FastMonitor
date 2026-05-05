@@ -1,3 +1,107 @@
+export namespace capture {
+	
+	export class ProcessPacketInfo {
+	    // Go type: time
+	    timestamp: any;
+	    src_ip: string;
+	    dst_ip: string;
+	    src_port: number;
+	    dst_port: number;
+	    protocol: string;
+	    size: number;
+	    is_sent: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProcessPacketInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.src_ip = source["src_ip"];
+	        this.dst_ip = source["dst_ip"];
+	        this.src_port = source["src_port"];
+	        this.dst_port = source["dst_port"];
+	        this.protocol = source["protocol"];
+	        this.size = source["size"];
+	        this.is_sent = source["is_sent"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ProcessStatsWithPackets {
+	    pid: number;
+	    name: string;
+	    exe: string;
+	    username: string;
+	    packets_sent: number;
+	    packets_recv: number;
+	    bytes_sent: number;
+	    bytes_recv: number;
+	    connections: number;
+	    // Go type: time
+	    first_seen: any;
+	    // Go type: time
+	    last_seen: any;
+	    recent_packets: process.ProcessPacket[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ProcessStatsWithPackets(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pid = source["pid"];
+	        this.name = source["name"];
+	        this.exe = source["exe"];
+	        this.username = source["username"];
+	        this.packets_sent = source["packets_sent"];
+	        this.packets_recv = source["packets_recv"];
+	        this.bytes_sent = source["bytes_sent"];
+	        this.bytes_recv = source["bytes_recv"];
+	        this.connections = source["connections"];
+	        this.first_seen = this.convertValues(source["first_seen"], null);
+	        this.last_seen = this.convertValues(source["last_seen"], null);
+	        this.recent_packets = this.convertValues(source["recent_packets"], process.ProcessPacket);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace config {
 	
 	export class Config {
@@ -125,6 +229,7 @@ export namespace model {
 	    condition_value: string;
 	    alert_level: string;
 	    description: string;
+	    require_network: boolean;
 	    // Go type: time
 	    created_at: any;
 	    // Go type: time
@@ -145,6 +250,7 @@ export namespace model {
 	        this.condition_value = source["condition_value"];
 	        this.alert_level = source["alert_level"];
 	        this.description = source["description"];
+	        this.require_network = source["require_network"];
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	    }
@@ -698,38 +804,31 @@ export namespace model {
 
 export namespace process {
 	
-	export class ProcessStats {
-	    pid: number;
-	    name: string;
-	    exe: string;
-	    username: string;
-	    packets_sent: number;
-	    packets_recv: number;
-	    bytes_sent: number;
-	    bytes_recv: number;
-	    connections: number;
+	export class ProcessPacket {
 	    // Go type: time
-	    first_seen: any;
-	    // Go type: time
-	    last_seen: any;
+	    timestamp: any;
+	    src_ip: string;
+	    dst_ip: string;
+	    src_port: number;
+	    dst_port: number;
+	    protocol: string;
+	    size: number;
+	    is_sent: boolean;
 	
 	    static createFrom(source: any = {}) {
-	        return new ProcessStats(source);
+	        return new ProcessPacket(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.pid = source["pid"];
-	        this.name = source["name"];
-	        this.exe = source["exe"];
-	        this.username = source["username"];
-	        this.packets_sent = source["packets_sent"];
-	        this.packets_recv = source["packets_recv"];
-	        this.bytes_sent = source["bytes_sent"];
-	        this.bytes_recv = source["bytes_recv"];
-	        this.connections = source["connections"];
-	        this.first_seen = this.convertValues(source["first_seen"], null);
-	        this.last_seen = this.convertValues(source["last_seen"], null);
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.src_ip = source["src_ip"];
+	        this.dst_ip = source["dst_ip"];
+	        this.src_port = source["src_port"];
+	        this.dst_port = source["dst_port"];
+	        this.protocol = source["protocol"];
+	        this.size = source["size"];
+	        this.is_sent = source["is_sent"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -755,11 +854,144 @@ export namespace process {
 
 export namespace server {
 	
+	export class CityStat {
+	    country: string;
+	    city: string;
+	    connections: number;
+	    unique_ips: number;
+	    ips: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CityStat(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.country = source["country"];
+	        this.city = source["city"];
+	        this.connections = source["connections"];
+	        this.unique_ips = source["unique_ips"];
+	        this.ips = source["ips"];
+	    }
+	}
+	export class CountryStat {
+	    country: string;
+	    connections: number;
+	    unique_ips: number;
+	    cities: string[];
+	    ips: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CountryStat(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.country = source["country"];
+	        this.connections = source["connections"];
+	        this.unique_ips = source["unique_ips"];
+	        this.cities = source["cities"];
+	        this.ips = source["ips"];
+	    }
+	}
+	export class IPStat {
+	    ip: string;
+	    count: number;
+	    country: string;
+	    city: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new IPStat(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ip = source["ip"];
+	        this.count = source["count"];
+	        this.country = source["country"];
+	        this.city = source["city"];
+	    }
+	}
+	export class MapDataPoint {
+	    name: string;
+	    country: string;
+	    city: string;
+	    latitude: number;
+	    longitude: number;
+	    value: number;
+	    connections: number;
+	    unique_ips: number;
+	    ips: string[];
+	    type: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MapDataPoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.country = source["country"];
+	        this.city = source["city"];
+	        this.latitude = source["latitude"];
+	        this.longitude = source["longitude"];
+	        this.value = source["value"];
+	        this.connections = source["connections"];
+	        this.unique_ips = source["unique_ips"];
+	        this.ips = source["ips"];
+	        this.type = source["type"];
+	    }
+	}
+	export class MapDataResponse {
+	    map_points: MapDataPoint[];
+	    country_map_points: MapDataPoint[];
+	    city_map_points: MapDataPoint[];
+	    country_stats: CountryStat[];
+	    city_stats: CityStat[];
+	    top_ips: IPStat[];
+	    total_sessions: number;
+	    unique_ips: number;
+	    // Go type: time
+	    last_update: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new MapDataResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.map_points = this.convertValues(source["map_points"], MapDataPoint);
+	        this.country_map_points = this.convertValues(source["country_map_points"], MapDataPoint);
+	        this.city_map_points = this.convertValues(source["city_map_points"], MapDataPoint);
+	        this.country_stats = this.convertValues(source["country_stats"], CountryStat);
+	        this.city_stats = this.convertValues(source["city_stats"], CityStat);
+	        this.top_ips = this.convertValues(source["top_ips"], IPStat);
+	        this.total_sessions = source["total_sessions"];
+	        this.unique_ips = source["unique_ips"];
+	        this.last_update = this.convertValues(source["last_update"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ProcessStatsResult {
-	    data: process.ProcessStats[];
+	    data: capture.ProcessStatsWithPackets[];
 	    total: number;
-	    page: number;
-	    page_size: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProcessStatsResult(source);
@@ -767,10 +999,8 @@ export namespace server {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.data = this.convertValues(source["data"], process.ProcessStats);
+	        this.data = this.convertValues(source["data"], capture.ProcessStatsWithPackets);
 	        this.total = source["total"];
-	        this.page = source["page"];
-	        this.page_size = source["page_size"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

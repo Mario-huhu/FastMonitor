@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/gopacket/pcap"
-	"sniffer/pkg/model"
+	"fastmonitor/pkg/model"
 )
 
 var (
@@ -18,11 +18,30 @@ var (
 
 // List returns all available network interfaces
 func List() ([]model.NetworkInterface, error) {
-	// 添加详细调试信息
 	fmt.Println("========== 开始获取网络接口 ==========")
 	fmt.Printf("操作系统: %s\n", runtime.GOOS)
 	fmt.Printf("Pcap 版本: %s\n", pcap.Version())
-	
+
+	// macOS: 使用增强的接口识别
+	if runtime.GOOS == "darwin" {
+		fmt.Println("使用 macOS 增强接口识别...")
+		enhancedInterfaces, err := EnhancedDarwinList()
+		if err == nil && len(enhancedInterfaces) > 0 {
+			fmt.Printf("找到 %d 个网络设备 (增强模式)\n", len(enhancedInterfaces))
+			for i, iface := range enhancedInterfaces {
+				fmt.Printf("\n设备 %d:\n", i+1)
+				fmt.Printf("  名称: %s\n", iface.Name)
+				fmt.Printf("  描述: %s\n", iface.Description)
+				fmt.Printf("  是否物理网卡: %v\n", iface.IsPhysical)
+				fmt.Printf("  是否活跃: %v\n", iface.IsUp)
+			}
+			fmt.Println("========== 网络接口获取完成 ==========")
+			return enhancedInterfaces, nil
+		}
+		fmt.Printf("增强模式失败，回退到标准模式: %v\n", err)
+	}
+
+	// 标准模式
 	devices, err := pcap.FindAllDevs()
 	if err != nil {
 		fmt.Printf("错误: 无法枚举设备: %v\n", err)
@@ -32,17 +51,29 @@ func List() ([]model.NetworkInterface, error) {
 	fmt.Printf("找到 %d 个网络设备\n", len(devices))
 
 	if len(devices) == 0 {
-		fmt.Println("警告: 未找到任何网络设备！")
-		fmt.Println("可能的原因：")
-		fmt.Println("1. Npcap 未正确安装")
-		fmt.Println("2. 需要以管理员身份运行")
-		fmt.Println("3. Windows 防火墙阻止了访问")
-		fmt.Println("4. Npcap 服务未启动")
-		fmt.Println("\n建议操作：")
-		fmt.Println("1. 重新安装 Npcap (https://npcap.com/#download)")
-		fmt.Println("2. 确保勾选 'Install Npcap in WinPcap API-compatible Mode'")
-		fmt.Println("3. 重启计算机")
-		fmt.Println("4. 以管理员身份运行程序")
+		if runtime.GOOS == "windows" {
+			fmt.Println("警告: 未找到任何网络设备！")
+			fmt.Println("可能的原因：")
+			fmt.Println("1. Npcap 未正确安装")
+			fmt.Println("2. 需要以管理员身份运行")
+			fmt.Println("3. Windows 防火墙阻止了访问")
+			fmt.Println("4. Npcap 服务未启动")
+			fmt.Println("\n建议操作：")
+			fmt.Println("1. 重新安装 Npcap (https://npcap.com/#download)")
+			fmt.Println("2. 确保勾选 'Install Npcap in WinPcap API-compatible Mode'")
+			fmt.Println("3. 重启计算机")
+			fmt.Println("4. 以管理员身份运行程序")
+		} else if runtime.GOOS == "darwin" {
+			fmt.Println("警告: 未找到任何网络设备！")
+			fmt.Println("可能的原因：")
+			fmt.Println("1. 需要 root 权限")
+			fmt.Println("2. BPF 设备权限未配置")
+			fmt.Println("\n建议操作：")
+			fmt.Println("1. 使用 sudo 运行程序")
+			fmt.Println("2. 或配置 BPF 权限:")
+			fmt.Println("   sudo chown $(whoami):admin /dev/bpf*")
+			fmt.Println("   sudo chmod g+rw /dev/bpf*")
+		}
 	}
 
 	interfaces := make([]model.NetworkInterface, 0, len(devices))
@@ -51,14 +82,14 @@ func List() ([]model.NetworkInterface, error) {
 		fmt.Printf("  名称: %s\n", dev.Name)
 		fmt.Printf("  描述: %s\n", dev.Description)
 		fmt.Printf("  地址数: %d\n", len(dev.Addresses))
-		
+
 		iface := model.NetworkInterface{
 			Name:        dev.Name,
 			Description: dev.Description,
 			Addresses:   make([]string, 0, len(dev.Addresses)),
 			IsLoopback:  isLoopback(dev.Name),
 			IsPhysical:  isPhysical(dev.Name, dev.Description),
-			IsUp:        true, // pcap only returns active interfaces
+			IsUp:        true,
 		}
 
 		for _, addr := range dev.Addresses {
@@ -136,10 +167,31 @@ func CheckPermission() error {
 		return nil
 
 	case "darwin":
-		// macOS requires root or admin
-		if os.Geteuid() != 0 {
-			return fmt.Errorf("%w: requires root privileges", ErrNoPermission)
+		// macOS: 检查是否有权限访问BPF设备
+		// 需要root权限或者用户在admin/wheel组
+		if os.Geteuid() == 0 {
+			return nil
 		}
+		
+		// 尝试打开设备测试权限
+		devices, err := pcap.FindAllDevs()
+		if err != nil {
+			return fmt.Errorf("%w: 需要root权限或sudo运行", ErrNoPermission)
+		}
+		if len(devices) == 0 {
+			return errors.New("未找到网络接口")
+		}
+		
+		// 尝试打开第一个设备
+		handle, err := pcap.OpenLive(devices[0].Name, 65535, false, pcap.BlockForever)
+		if err != nil {
+			if strings.Contains(err.Error(), "permission") || 
+			   strings.Contains(err.Error(), "You don't have permission") {
+				return fmt.Errorf("%w: 需要root权限，请使用 sudo 运行", ErrNoPermission)
+			}
+			return fmt.Errorf("打开设备失败: %w", err)
+		}
+		handle.Close()
 		return nil
 
 	default:
@@ -253,6 +305,31 @@ func isPhysical(name, desc string) bool {
 
 	for _, keyword := range virtualKeywords {
 		if strings.Contains(name, keyword) || strings.Contains(desc, keyword) {
+			return false
+		}
+	}
+	
+	// macOS: 识别物理网卡
+	if runtime.GOOS == "darwin" {
+		// en0 通常是主要的物理网卡 (Wi-Fi 或以太网)
+		// en1, en2 等也可能是物理网卡
+		if strings.HasPrefix(name, "en") {
+			return true
+		}
+		// utun 是VPN隧道
+		if strings.HasPrefix(name, "utun") {
+			return false
+		}
+		// awdl 是Apple Wireless Direct Link
+		if strings.HasPrefix(name, "awdl") {
+			return false
+		}
+		// llw 是Low Latency WLAN
+		if strings.HasPrefix(name, "llw") {
+			return false
+		}
+		// bridge 是桥接
+		if strings.HasPrefix(name, "bridge") {
 			return false
 		}
 	}

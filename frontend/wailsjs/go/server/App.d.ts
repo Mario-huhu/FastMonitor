@@ -3,8 +3,8 @@
 import {model} from '../models';
 import {config} from '../models';
 import {server} from '../models';
+import {capture} from '../models';
 import {store} from '../models';
-import {process} from '../models';
 
 export function AcknowledgeAlert(arg1:number,arg2:string):Promise<void>;
 
@@ -40,9 +40,13 @@ export function GetLibraryVersion():Promise<string>;
 
 export function GetLimits():Promise<config.Limits>;
 
+export function GetMapData():Promise<server.MapDataResponse>;
+
 export function GetMetrics():Promise<model.Metrics>;
 
 export function GetNpcapDownloadURL():Promise<string>;
+
+export function GetProcessPackets(arg1:string):Promise<Array<capture.ProcessPacketInfo>>;
 
 export function GetProcessStats(arg1:number,arg2:number):Promise<server.ProcessStatsResult>;
 
@@ -56,7 +60,7 @@ export function GetSnapshot(arg1:string,arg2:number):Promise<Array<any>>;
 
 export function GetStorageStats():Promise<store.StoreStats>;
 
-export function GetTopProcessesByTraffic(arg1:number):Promise<Array<process.ProcessStats>>;
+export function GetTopProcessesByTraffic(arg1:number):Promise<Array<capture.ProcessStatsWithPackets>>;
 
 export function IsCapturing():Promise<boolean>;
 
@@ -71,6 +75,8 @@ export function QueryAlertRules(arg1:model.AlertRuleQuery):Promise<Record<string
 export function QuerySessionFlows(arg1:model.SessionFlowQuery):Promise<model.SessionFlowResult>;
 
 export function QuerySessions(arg1:model.QueryOptions):Promise<model.QueryResult>;
+
+export function ResetBuiltinRules():Promise<void>;
 
 export function ResumeCapture():Promise<void>;
 

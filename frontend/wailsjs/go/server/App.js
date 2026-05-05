@@ -70,12 +70,20 @@ export function GetLimits() {
   return window['go']['server']['App']['GetLimits']();
 }
 
+export function GetMapData() {
+  return window['go']['server']['App']['GetMapData']();
+}
+
 export function GetMetrics() {
   return window['go']['server']['App']['GetMetrics']();
 }
 
 export function GetNpcapDownloadURL() {
   return window['go']['server']['App']['GetNpcapDownloadURL']();
+}
+
+export function GetProcessPackets(arg1) {
+  return window['go']['server']['App']['GetProcessPackets'](arg1);
 }
 
 export function GetProcessStats(arg1, arg2) {
@@ -132,6 +140,10 @@ export function QuerySessionFlows(arg1) {
 
 export function QuerySessions(arg1) {
   return window['go']['server']['App']['QuerySessions'](arg1);
+}
+
+export function ResetBuiltinRules() {
+  return window['go']['server']['App']['ResetBuiltinRules']();
 }
 
 export function ResumeCapture() {
