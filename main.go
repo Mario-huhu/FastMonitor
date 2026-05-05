@@ -82,7 +82,7 @@ func main() {
 
 	// Create Wails application
 	err = wails.Run(&options.App{
-		Title:             "FastMonitor - 网络流量监控与威胁检测工具 v1.1.0",
+		Title:             "FastMonitor - 网络流量监控与威胁检测工具 v1.2.0",
 		Width:             1400,
 		Height:            900,
 		MinWidth:          1200,

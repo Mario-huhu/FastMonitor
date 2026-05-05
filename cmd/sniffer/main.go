@@ -17,11 +17,11 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 
-	"sniffer/internal/capture"
-	"sniffer/internal/config"
-	"sniffer/internal/scheduler"
-	"sniffer/internal/server"
-	"sniffer/internal/store"
+	"fastmonitor/internal/capture"
+	"fastmonitor/internal/config"
+	"fastmonitor/internal/scheduler"
+	"fastmonitor/internal/server"
+	"fastmonitor/internal/store"
 )
 
 //go:embed all:frontend/dist
@@ -84,7 +84,7 @@ func main() {
 
 	// Create Wails application
 	err = wails.Run(&options.App{
-		Title:             "Network Packet Sniffer",
+		Title:             "FastMonitor - 网络流量监控与威胁检测工具 v1.1.0",
 		Width:             1400,
 		Height:            900,
 		MinWidth:          1200,
@@ -133,7 +133,7 @@ func main() {
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  true,
 			About: &mac.AboutInfo{
-				Title:   "Network Packet Sniffer",
+				Title:   "FastMonitor - 网络流量监控与威胁检测工具 v1.1.0",
 				Message: "A powerful network packet capture and analysis tool built with Wails",
 				Icon:    icon,
 			},
